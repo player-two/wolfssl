@@ -436,3 +436,7 @@ MagicCrypto
 debian/changelog
 debian/control
 *.deb
+
+# Zig build
+/zig-out/
+/zig-cache/
