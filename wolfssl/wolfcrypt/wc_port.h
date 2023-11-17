@@ -982,7 +982,15 @@ WOLFSSL_ABI WOLFSSL_API int wolfCrypt_Cleanup(void);
     #ifndef _POSIX_C_SOURCE
         #include <zephyr/posix/time.h>
     #else
-        #include <sys/time.h>
+        #include <time.h>
+    #endif
+
+    #if defined(CONFIG_RTC)
+        #if defined(CONFIG_PICOLIBC) || defined(CONFIG_NEWLIB_LIBC)
+            #include <zephyr/drivers/rtc.h>
+        #else
+            #warning "RTC support needs picolibc or newlib (nano)"
+        #endif
     #endif
 
     time_t z_time(time_t *timer);
@@ -1055,6 +1063,11 @@ WOLFSSL_ABI WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XTIME(tl)       time((tl))
     #endif
 #endif
+
+#if defined(WOLFSSL_GMTIME) && !defined(HAVE_GMTIME_R)
+    #define HAVE_GMTIME_R
+#endif
+
 #if !defined(XGMTIME) && !defined(TIME_OVERRIDES)
     /* Always use gmtime_r if available. */
     #if defined(HAVE_GMTIME_S)
@@ -1120,8 +1133,9 @@ WOLFSSL_ABI WOLFSSL_API int wolfCrypt_Cleanup(void);
     extern struct tm* XGMTIME(const time_t* timer, struct tm* tmp);
 #elif defined(WOLFSSL_GMTIME)
     struct tm* gmtime(const time_t* timer);
+    struct tm* gmtime_r(const time_t* timer, struct tm *ret);
 #endif
-#endif /* NO_ASN_TIME */
+#endif /* !NO_ASN_TIME */
 
 
 #ifndef WOLFSSL_LEANPSK

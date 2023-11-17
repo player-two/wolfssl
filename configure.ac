@@ -1,13 +1,13 @@
 # configure.ac
 #
-# Copyright (C) 2006-2021 wolfSSL Inc.
+# Copyright (C) 2006-2023 wolfSSL Inc.
 #
 # This file is part of wolfSSL. (formerly known as CyaSSL)
 #
 #
-AC_COPYRIGHT([Copyright (C) 2006-2020 wolfSSL Inc.])
+AC_COPYRIGHT([Copyright (C) 2006-2023 wolfSSL Inc.])
 AC_PREREQ([2.69])
-AC_INIT([wolfssl],[5.6.3],[https://github.com/wolfssl/wolfssl/issues],[wolfssl],[https://www.wolfssl.com])
+AC_INIT([wolfssl],[5.6.4],[https://github.com/wolfssl/wolfssl/issues],[wolfssl],[https://www.wolfssl.com])
 AC_CONFIG_AUX_DIR([build-aux])
 
 # The following sets CFLAGS to empty if unset on command line.  We do not
@@ -46,10 +46,10 @@ AC_SUBST([WOLFSSL_CONFIG_ARGS])
 # shared library versioning
 # The three numbers in the libwolfssl.so.*.*.* file name. Unfortunately
 # these numbers don't always line up nicely with the library version.
-WOLFSSL_LIBRARY_VERSION_FIRST=40
+WOLFSSL_LIBRARY_VERSION_FIRST=41
 WOLFSSL_LIBRARY_VERSION_SECOND=0
 WOLFSSL_LIBRARY_VERSION_THIRD=0
-WOLFSSL_LIBRARY_VERSION=40:0:0
+WOLFSSL_LIBRARY_VERSION=41:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -720,7 +720,7 @@ then
     # this set is also enabled by enable-all-crypto:
     test "$enable_atomicuser" = "" && enable_atomicuser=yes
     test "$enable_aesgcm" = "" && enable_aesgcm=yes
-    test "$enable_aesgcm_stream" = "" && enable_aesgcm_stream=yes
+    test "$enable_aesgcm_stream" = "" && test "$enable_aesgcm" = "yes" && enable_aesgcm_stream=yes
     test "$enable_aesccm" = "" && enable_aesccm=yes
     test "$enable_aesctr" = "" && enable_aesctr=yes
     test "$enable_aeseax" = "" && enable_aeseax=yes
@@ -798,13 +798,14 @@ then
     if test "$ENABLED_LINUXKM_DEFAULTS" != "yes"
     then
         test "$enable_compkey" = "" && enable_compkey=yes
+        test "$enable_quic" = "" && enable_quic=yes
         AM_CFLAGS="$AM_CFLAGS -DHAVE_CRL_IO -DHAVE_IO_TIMEOUT"
     fi
 
     # sp-math is incompatible with opensslextra, ECC custom curves, and DSA.
     if test "$ENABLED_SP_MATH" = "no"
     then
-        test "$enable_dsa" = "" && enable_dsa=yes
+        test "$enable_dsa" = "" && test "$enable_sha" != "no" && enable_dsa=yes
         test "$enable_ecccustcurves" = "" && enable_ecccustcurves=yes
         test "$enable_brainpool" = "" && enable_brainpool=yes
         test "$enable_srp" = "" && enable_srp=yes
@@ -907,7 +908,7 @@ if test "$ENABLED_ALL_CRYPT" = "yes"
 then
     test "$enable_atomicuser" = "" && enable_atomicuser=yes
     test "$enable_aesgcm" = "" && enable_aesgcm=yes
-    test "$enable_aesgcm_stream" = "" && enable_aesgcm_stream=yes
+    test "$enable_aesgcm_stream" = "" && test "$enable_aesgcm" = "yes" && enable_aesgcm_stream=yes
     test "$enable_aesccm" = "" && enable_aesccm=yes
     test "$enable_aesctr" = "" && enable_aesctr=yes
     test "$enable_aeseax" = "" && enable_aeseax=yes
@@ -973,7 +974,7 @@ then
 
     if test "$ENABLED_SP_MATH" = "no"
     then
-        test "$enable_dsa" = "" && enable_dsa=yes
+        test "$enable_dsa" = "" && test "$enable_sha" != "no" && enable_dsa=yes
         test "$enable_ecccustcurves" = "" && enable_ecccustcurves=yes
         test "$enable_brainpool" = "" && enable_brainpool=yes
         test "$enable_srp" = "" && enable_srp=yes
@@ -1474,6 +1475,10 @@ then
     if test "x$ENABLED_TLS13" = "xno"
     then
         AC_MSG_ERROR([TLS 1.3 is disabled - necessary for QUIC])
+    fi
+    if test "$enable_aesgcm" = "no"
+    then
+        AC_MSG_ERROR([AES-GCM is disabled - necessary for QUIC])
     fi
     AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_QUIC"
     # QUIC proto handlers need app_data at WOLFSSL*
@@ -2492,6 +2497,16 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_AES_CFB"
 fi
 
+AC_ARG_ENABLE([aes-bitsliced],
+    [AS_HELP_STRING([--enable-aes-bitsliced],[Enable bitsliced implementation of AES (default: disabled)])],
+    [ ENABLED_AESBS=$enableval ],
+    [ ENABLED_AESBS=no ]
+    )
+
+if test "$ENABLED_AESBS" = "yes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWC_AES_BITSLICED -DHAVE_AES_ECB"
+fi
 
 # SM4
 ENABLED_SM4="no"
@@ -3547,6 +3562,22 @@ then
   AM_CFLAGS="$AM_CFLAGS -DHAVE_X963_KDF"
 fi
 
+# SRTP-KDF
+AC_ARG_ENABLE([srtp-kdf],
+    [AS_HELP_STRING([--enable-srtp-kdf],[Enable SRTP-KDF support (default: disabled)])],
+    [ ENABLED_SRTP_KDF=$enableval ],
+    [ ENABLED_SRTP_KDF=no ]
+    )
+if test "$ENABLED_SRTP" = "yes"
+then
+  ENABLED_SRTP_KDF="yes"
+fi
+if test "$ENABLED_SRTP_KDF" = "yes"
+then
+  AM_CFLAGS="$AM_CFLAGS -DWC_SRTP_KDF -DHAVE_AES_ECB -DWOLFSSL_AES_DIRECT"
+fi
+
+
 # DSA
 AC_ARG_ENABLE([dsa],
     [AS_HELP_STRING([--enable-dsa],[Enable DSA (default: disabled)])],
@@ -3554,7 +3585,7 @@ AC_ARG_ENABLE([dsa],
     [ ENABLED_DSA=no ]
     )
 
-if test "$enable_dsa" = ""
+if test "$enable_dsa" = "" && test "$enable_sha" != "no"
 then
     if (test "$ENABLED_OPENSSH" = "yes" && test "x$ENABLED_FIPS" = "xno") || test "$ENABLED_OPENVPN" = "yes" || test "$ENABLED_NGINX" = "yes" || test "$ENABLED_WPAS" = "yes" || test "$ENABLED_QT" = "yes" || test "$ENABLED_BIND" = "yes" || test "$ENABLED_LIBSSH2" = "yes" || test "$ENABLED_NTP" = "yes"
     then
@@ -3991,63 +4022,6 @@ AC_ARG_ENABLE([errorqueue],
     [ ENABLED_ERROR_QUEUE=yes ]
     )
 
-# OLD TLS
-AC_ARG_ENABLE([oldtls],
-    [AS_HELP_STRING([--enable-oldtls],[Enable old TLS versions < 1.2 (default: enabled)])],
-    [ ENABLED_OLD_TLS=$enableval ],
-    [ ENABLED_OLD_TLS=yes ]
-    )
-
-if test "$ENABLED_CRYPTONLY" = "yes" || test "x$ENABLED_HARDEN_TLS" != "xno"
-then
-    ENABLED_OLD_TLS=no
-fi
-if test "$ENABLED_OLD_TLS" = "no"
-then
-    AM_CFLAGS="$AM_CFLAGS -DNO_OLD_TLS"
-else
-    # turn off old if leanpsk or leantls on
-    if test "$ENABLED_LEANPSK" = "yes" || test "$ENABLED_LEANTLS" = "yes"
-    then
-        AM_CFLAGS="$AM_CFLAGS -DNO_OLD_TLS"
-        ENABLED_OLD_TLS=no
-    fi
-fi
-
-
-# TLSv1.2
-AC_ARG_ENABLE([tlsv12],
-    [AS_HELP_STRING([--enable-tlsv12],[Enable TLS versions 1.2 (default: enabled)])],
-    [ ENABLED_TLSV12=$enableval ],
-    [ ENABLED_TLSV12=yes ]
-    )
-
-if test "$ENABLED_CRYPTONLY" = "yes"
-then
-    ENABLED_TLSV12=no
-fi
-if test "$ENABLED_TLSV12" = "no"
-then
-    AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_NO_TLS12 -DNO_OLD_TLS"
-fi
-
-
-# TLSv1.0
-AC_ARG_ENABLE([tlsv10],
-    [AS_HELP_STRING([--enable-tlsv10],[Enable old TLS versions 1.0 (default: disabled)])],
-    [ ENABLED_TLSV10=$enableval ],
-    [ ENABLED_TLSV10=no ]
-    )
-
-if test "$ENABLED_CRYPTONLY" = "yes"
-then
-    ENABLED_TLSV12=no
-fi
-if test "$ENABLED_TLSV10" = "yes"
-then
-    AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_ALLOW_TLSV10"
-fi
-
 
 # SSLv3
 AC_ARG_ENABLE([sslv3],
@@ -4069,6 +4043,67 @@ if test "$ENABLED_SSLV3" = "yes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_ALLOW_SSLV3"
 fi
+
+# TLSv1.0
+AC_ARG_ENABLE([tlsv10],
+    [AS_HELP_STRING([--enable-tlsv10],[Enable old TLS versions 1.0 (default: disabled)])],
+    [ ENABLED_TLSV10=$enableval ],
+    [ ENABLED_TLSV10=no ]
+    )
+
+if test "$ENABLED_CRYPTONLY" = "yes"
+then
+    ENABLED_TLSV12=no
+fi
+if test "$ENABLED_TLSV10" = "yes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_ALLOW_TLSV10"
+fi
+
+
+# OLD TLS
+AC_ARG_ENABLE([oldtls],
+    [AS_HELP_STRING([--enable-oldtls],[Enable old TLS versions < 1.2 (default: disabled)])],
+    [ ENABLED_OLD_TLS=$enableval ],
+    [ ENABLED_OLD_TLS=no ]
+    )
+
+
+if test "$ENABLED_CRYPTONLY" = "yes" || test "x$ENABLED_HARDEN_TLS" != "xno" || \
+    test "$ENABLED_LEANPSK" = "yes" || test "$ENABLED_LEANTLS" = "yes"
+then
+    ENABLED_OLD_TLS=no
+fi
+
+# if SSL v3.0 or TLS v1.0 enabled, then allow "old tls". QT also requires it apparently
+if test "$ENABLED_TLSV10" = "yes" || test "$ENABLED_SSLV3" = "yes" || \
+    (test "$ENABLED_QT" = "yes" && test "x$ENABLED_ALL" = "xno")
+then
+    ENABLED_OLD_TLS=yes
+fi
+
+if test "$ENABLED_OLD_TLS" = "no"
+then
+    AM_CFLAGS="$AM_CFLAGS -DNO_OLD_TLS"
+fi
+
+
+# TLSv1.2
+AC_ARG_ENABLE([tlsv12],
+    [AS_HELP_STRING([--enable-tlsv12],[Enable TLS versions 1.2 (default: enabled)])],
+    [ ENABLED_TLSV12=$enableval ],
+    [ ENABLED_TLSV12=yes ]
+    )
+
+if test "$ENABLED_CRYPTONLY" = "yes"
+then
+    ENABLED_TLSV12=no
+fi
+if test "$ENABLED_TLSV12" = "no"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_NO_TLS12 -DNO_OLD_TLS"
+fi
+
 
 
 # STACK SIZE info for testwolfcrypt and examples
@@ -8351,26 +8386,30 @@ then
 
     case $host_os in
         *darwin*)
-            # Creates the HAVE_SECURITY_SECXXX_H macros in config.h
+            # Headers used for MacOS default system CA certs behavior. Only MacOS SDK will have this header
             AC_CHECK_HEADERS([Security/SecTrustSettings.h])
+            # Headers used for Apple native cert validation. All device SDKs should have these headers
             AC_CHECK_HEADERS([Security/SecCertificate.h])
             AC_CHECK_HEADERS([Security/SecTrust.h])
             AC_CHECK_HEADERS([Security/SecPolicy.h])
             # Either Security/SecTrustSettings (for MacOS cert loading), or the
             # trio of Security/SecCertificate.h, Security/SecTrust.h, and
-            # Security/SecPolicy.h (for native trust APIs other apple devices)
-            # must be present
-            AS_IF([test -n "$ac_cv_header_Security_SecTrustSettings_h" \
-                   || (test -n "$ac_cv_header_Security_SecCertificate_h" \
-                       && test -n "$ac_cv_header_Security_SecTrust_h" \
-                       && test -n "$ac_cv_header_Security_SecPolicy_h")],
+            # Security/SecPolicy.h (for native trust APIs on other apple devices)
+            # must be present. Default to SecTrustSettings method on MacOS.
+            AS_IF([test "$ac_cv_header_Security_SecTrustSettings_h" = "yes" \
+                   || (test "$ac_cv_header_Security_SecCertificate_h" = "yes" \
+                       && test "$ac_cv_header_Security_SecTrust_h" = "yes" \
+                       && test "$ac_cv_header_Security_SecPolicy_h" = "yes")],
+            [
+                LDFLAGS="$LDFLAGS -framework CoreFoundation -framework Security"
+                AS_IF([test "$ac_cv_header_Security_SecTrustSettings_h" != "yes"],
                 [
-                    LDFLAGS="$LDFLAGS -framework CoreFoundation -framework Security"
-                ],
-                [
-                    AC_MSG_ERROR([Unable to find Apple Security.framework headers])
-                ]
-            )
+                  AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_APPLE_NATIVE_CERT_VALIDATION"
+                ])
+            ],
+            [
+              AC_MSG_ERROR([Unable to find Apple Security.framework headers])
+            ])
             ;;
     esac
 fi
@@ -8671,6 +8710,9 @@ if test "$ENABLED_MD5" = "no"
 then
     AM_CFLAGS="$AM_CFLAGS -DNO_MD5 -DNO_OLD_TLS"
 fi
+
+AS_IF([test "x$ENABLED_AESBS" = "xyes" && test "x$ENABLED_ARMASM" = "xyes"],
+      [AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_AES_DIRECT"])
 
 if test "$ENABLED_HMAC" = "no"
 then
@@ -9538,6 +9580,7 @@ echo "   * AES-CFB:                    $ENABLED_AESCFB"
 echo "   * AES-OFB:                    $ENABLED_AESOFB"
 echo "   * AES-SIV:                    $ENABLED_AESSIV"
 echo "   * AES-EAX:                    $ENABLED_AESEAX"
+echo "   * AES Bitspliced:             $ENABLED_AESBS"
 echo "   * ARIA:                       $ENABLED_ARIA"
 echo "   * DES3:                       $ENABLED_DES3"
 echo "   * Camellia:                   $ENABLED_CAMELLIA"
@@ -9579,6 +9622,7 @@ echo "   * wolfCrypt Only:             $ENABLED_CRYPTONLY"
 echo "   * HKDF:                       $ENABLED_HKDF"
 echo "   * HPKE:                       $ENABLED_HPKE"
 echo "   * X9.63 KDF:                  $ENABLED_X963KDF"
+echo "   * SRTP-KDF:                   $ENABLED_SRTP_KDF"
 echo "   * PSK:                        $ENABLED_PSK"
 echo "   * Poly1305:                   $ENABLED_POLY1305"
 echo "   * LEANPSK:                    $ENABLED_LEANPSK"
@@ -9681,8 +9725,11 @@ echo "   * Secure Renegotiation:       $ENABLED_SECURE_RENEGOTIATION"
 echo "   * Fallback SCSV:              $ENABLED_FALLBACK_SCSV"
 echo "   * Keying Material Exporter:   $ENABLED_KEYING_MATERIAL"
 echo "   * All TLS Extensions:         $ENABLED_TLSX"
-echo "   * PKCS#7:                     $ENABLED_PKCS7"
 echo "   * S/MIME:                     $ENABLED_SMIME"
+echo "   * PKCS#7:                     $ENABLED_PKCS7"
+echo "   * PKCS#8:                     $ENABLED_PKCS8"
+echo "   * PKCS#11:                    $ENABLED_PKCS11"
+echo "   * PKCS#12:                    $ENABLED_PKCS12"
 echo "   * wolfSSH:                    $ENABLED_WOLFSSH"
 echo "   * wolfEngine:                 $ENABLED_WOLFENGINE"
 echo "   * wolfTPM:                    $ENABLED_WOLFTPM"
@@ -9701,9 +9748,6 @@ echo "   * User Crypto:                $ENABLED_USER_CRYPTO"
 echo "   * Fast RSA:                   $ENABLED_FAST_RSA"
 echo "   * Asynchronous Crypto:        $ENABLED_ASYNCCRYPT"
 echo "   * Asynchronous Crypto (sim):  $ENABLED_ASYNCCRYPT_SW"
-echo "   * PKCS#8:                     $ENABLED_PKCS8"
-echo "   * PKCS#11:                    $ENABLED_PKCS11"
-echo "   * PKCS#12:                    $ENABLED_PKCS12"
 echo "   * Cavium Nitrox:              $ENABLED_CAVIUM"
 echo "   * Cavium Octeon (Sync):       $ENABLED_OCTEON_SYNC"
 echo "   * Intel Quick Assist:         $ENABLED_INTEL_QA"

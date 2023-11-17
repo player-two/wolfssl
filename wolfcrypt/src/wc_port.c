@@ -2922,7 +2922,7 @@ time_t mynewt_time(time_t* timer)
 #endif /* WOLFSSL_APACHE_MYNEWT */
 
 #if defined(WOLFSSL_GMTIME)
-struct tm* gmtime(const time_t* timer)
+struct tm* gmtime_r(const time_t* timer, struct tm *ret)
 {
     #define YEAR0          1900
     #define EPOCH_YEAR     1970
@@ -2936,8 +2936,6 @@ struct tm* gmtime(const time_t* timer)
         {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
     };
 
-    static struct tm st_time;
-    struct tm* ret = &st_time;
     time_t secs = *timer;
     unsigned long dayclock, dayno;
     int year = EPOCH_YEAR;
@@ -2971,6 +2969,12 @@ struct tm* gmtime(const time_t* timer)
 
     return ret;
 }
+
+struct tm* gmtime(const time_t* timer) {
+    static struct tm st_time;
+    return gmtime_r(timer, &st_time);
+}
+
 #endif /* WOLFSSL_GMTIME */
 
 
@@ -3164,6 +3168,30 @@ time_t z_time(time_t * timer)
 {
     struct timespec ts;
 
+    #if defined(CONFIG_RTC) && \
+        (defined(CONFIG_PICOLIBC) || defined(CONFIG_NEWLIB_LIBC))
+    /* Try to obtain the actual time from an RTC */
+    static const struct device *rtc = DEVICE_DT_GET(DT_NODELABEL(rtc));
+
+    if (device_is_ready(rtc)) {
+        struct rtc_time rtc_time;
+        struct tm *tm_time = rtc_time_to_tm(&rtc_time);
+
+        int ret = rtc_get_time(rtc, &rtc_time);
+
+        if (ret == 0) {
+            time_t epochTime = mktime(tm_time);
+
+            if (timer != NULL)
+                *timer = epochTime;
+
+            return epochTime;
+        }
+    }
+    #endif
+
+    /* Fallback to uptime since boot. This works for relative times, but
+     * not for ASN.1 date validation */
     if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
         if (timer != NULL)
             *timer = ts.tv_sec;
