@@ -120,6 +120,17 @@ pub fn build(b: *std.Build) void {
         lib.defineCMacro("HAVE_SYS_TIME_H", null);
         lib.defineCMacro("HAVE_PTHREAD", null);
     }
+    if (target.isWindows() and target.abi != .msvc) {
+        const winpthreads_dep = b.dependency("winpthreads", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const pthreads = winpthreads_dep.artifact("winpthreads");
+        for (pthreads.include_dirs.items) |include| {
+            lib.include_dirs.append(include) catch {};
+        }
+        lib.linkLibrary(pthreads);
+    }
     lib.linkLibC();
 
     lib.installHeadersDirectory("wolfssl", "");

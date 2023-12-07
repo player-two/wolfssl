@@ -1,6 +1,12 @@
 .{
     .name = "wolfssl",
     .version = "5.6.3",
+    .dependencies = .{
+        .winpthreads = .{
+            .url = "git+https://github.com/kassane/winpthreads-zigbuild#14b0a1c44ebc2a6349758a0b28a5a940e49c6bfe",
+            .hash = "122049dc4134294a961d04f4a68b4f4755b3b453144a1a2ddabf744183392d400353",
+        },
+    },
     .license = "GPLv2",
     .paths = .{""},
 }
