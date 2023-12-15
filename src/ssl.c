@@ -1265,8 +1265,12 @@ int wolfSSL_send_session(WOLFSSL* ssl)
 
 /* prevent multiple mutex initializations */
 static volatile WOLFSSL_GLOBAL int initRefCount = 0;
+#ifdef WOLFSSL_MUTEX_INITIALIZER
+static WOLFSSL_GLOBAL wolfSSL_Mutex count_mutex = WOLFSSL_MUTEX_INITIALIZER;
+#else
 static WOLFSSL_GLOBAL wolfSSL_Mutex count_mutex;   /* init ref count mutex */
 static WOLFSSL_GLOBAL int count_mutex_valid = 0;
+#endif
 
 /* Create a new WOLFSSL_CTX struct and return the pointer to created struct.
    WOLFSSL_METHOD pointer passed in is given to ctx to manage.
@@ -6258,6 +6262,7 @@ int wolfSSL_Init(void)
         }
     #endif
 #endif
+#ifndef WOLFSSL_MUTEX_INITIALIZER
         if (ret == WOLFSSL_SUCCESS) {
             if (wc_InitMutex(&count_mutex) != 0) {
                 WOLFSSL_MSG("Bad Init Mutex count");
@@ -6267,6 +6272,7 @@ int wolfSSL_Init(void)
                 count_mutex_valid = 1;
             }
         }
+#endif /* !WOLFSSL_MUTEX_INITIALIZER */
 #if defined(OPENSSL_EXTRA) && defined(HAVE_ATEXIT)
         /* OpenSSL registers cleanup using atexit */
         if ((ret == WOLFSSL_SUCCESS) && (atexit(AtExitCleanup) != 0)) {
@@ -13378,21 +13384,30 @@ int wolfSSL_Cleanup(void)
 
     WOLFSSL_ENTER("wolfSSL_Cleanup");
 
-    if (initRefCount == 0)
-        return ret;  /* possibly no init yet, but not failure either way */
-
-    if ((count_mutex_valid == 1) && (wc_LockMutex(&count_mutex) != 0)) {
-        WOLFSSL_MSG("Bad Lock Mutex count");
-        ret = BAD_MUTEX_E;
-    }
-
-    release = initRefCount-- == 1;
-    if (initRefCount < 0)
-        initRefCount = 0;
-
+#ifndef WOLFSSL_MUTEX_INITIALIZER
     if (count_mutex_valid == 1) {
-        wc_UnLockMutex(&count_mutex);
+#endif
+        if (wc_LockMutex(&count_mutex) != 0) {
+            WOLFSSL_MSG("Bad Lock Mutex count");
+            return BAD_MUTEX_E;
+        }
+#ifndef WOLFSSL_MUTEX_INITIALIZER
     }
+#endif
+
+    if (initRefCount > 0) {
+        --initRefCount;
+        if (initRefCount == 0)
+            release = 1;
+    }
+
+#ifndef WOLFSSL_MUTEX_INITIALIZER
+    if (count_mutex_valid == 1) {
+#endif
+        wc_UnLockMutex(&count_mutex);
+#ifndef WOLFSSL_MUTEX_INITIALIZER
+    }
+#endif
 
     if (!release)
         return ret;
@@ -13442,11 +13457,13 @@ int wolfSSL_Cleanup(void)
     #endif
 #endif /* !NO_SESSION_CACHE */
 
+#ifndef WOLFSSL_MUTEX_INITIALIZER
     if ((count_mutex_valid == 1) && (wc_FreeMutex(&count_mutex) != 0)) {
         if (ret == WOLFSSL_SUCCESS)
             ret = BAD_MUTEX_E;
     }
     count_mutex_valid = 0;
+#endif
 
 #ifdef OPENSSL_EXTRA
     wolfSSL_RAND_Cleanup();
@@ -14339,6 +14356,8 @@ ClientSession* AddSessionToClientCache(int side, int row, int idx, byte* serverI
 {
     int error = -1;
     word32 clientRow = 0, clientIdx = 0;
+    ClientSession* ret = NULL;
+
     (void)useTicket;
     if (side == WOLFSSL_CLIENT_END
             && row != INVALID_SESSION_ROW
@@ -14392,6 +14411,8 @@ ClientSession* AddSessionToClientCache(int side, int row, int idx, byte* serverI
                 ClientCache[clientRow].nextIdx %= CLIENT_SESSIONS_PER_ROW;
             }
 
+            ret = &ClientCache[clientRow].Clients[clientIdx];
+
             wc_UnLockMutex(&clisession_mutex);
         }
         else {
@@ -14402,10 +14423,8 @@ ClientSession* AddSessionToClientCache(int side, int row, int idx, byte* serverI
     else {
         WOLFSSL_MSG("Skipping client cache");
     }
-    if (error == 0)
-        return &ClientCache[clientRow].Clients[clientIdx];
-    else
-        return NULL;
+
+    return ret;
 }
 #endif /* !NO_CLIENT_CACHE */
 
@@ -16301,6 +16320,163 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
 
         ctx->certSetupCb = cb;
         ctx->certSetupCbArg = arg;
+    }
+
+    int wolfSSL_get_client_suites_sigalgs(const WOLFSSL* ssl,
+            const byte** suites, word16* suiteSz,
+            const byte** hashSigAlgo, word16* hashSigAlgoSz)
+    {
+        WOLFSSL_ENTER("wolfSSL_get_client_suites_sigalgs");
+
+        if (suites != NULL)
+            *suites = NULL;
+        if (suiteSz != NULL)
+            *suiteSz = 0;
+        if (hashSigAlgo != NULL)
+            *hashSigAlgo = NULL;
+        if (hashSigAlgoSz != NULL)
+            *hashSigAlgoSz = 0;
+
+        if (ssl != NULL && ssl->clSuites != NULL) {
+            if (suites != NULL && suiteSz != NULL) {
+                *suites = ssl->clSuites->suites;
+                *suiteSz = ssl->clSuites->suiteSz;
+            }
+            if (hashSigAlgo != NULL && hashSigAlgoSz != NULL) {
+                *hashSigAlgo = ssl->clSuites->hashSigAlgo;
+                *hashSigAlgoSz = ssl->clSuites->hashSigAlgoSz;
+            }
+            return WOLFSSL_SUCCESS;
+        }
+        return WOLFSSL_FAILURE;
+    }
+    WOLFSSL_CIPHERSUITE_INFO wolfSSL_get_ciphersuite_info(byte first,
+            byte second)
+    {
+        WOLFSSL_CIPHERSUITE_INFO info;
+        info.rsaAuth = (byte)(CipherRequires(first, second, REQUIRES_RSA) ||
+                CipherRequires(first, second, REQUIRES_RSA_SIG));
+        info.eccAuth = (byte)(CipherRequires(first, second, REQUIRES_ECC) ||
+                /* Static ECC ciphers may require RSA for authentication */
+                (CipherRequires(first, second, REQUIRES_ECC_STATIC) &&
+                        !CipherRequires(first, second, REQUIRES_RSA_SIG)));
+        info.eccStatic =
+                (byte)CipherRequires(first, second, REQUIRES_ECC_STATIC);
+        info.psk = (byte)CipherRequires(first, second, REQUIRES_PSK);
+        return info;
+    }
+
+    /**
+     * @param first First byte of the hash and signature algorithm
+     * @param second Second byte of the hash and signature algorithm
+     * @param hashAlgo The enum wc_HashType of the MAC algorithm
+     * @param sigAlgo The enum Key_Sum of the authentication algorithm
+     */
+    int wolfSSL_get_sigalg_info(byte first, byte second,
+            int* hashAlgo, int* sigAlgo)
+    {
+        byte input[2];
+        byte hashType;
+        byte sigType;
+
+        if (hashAlgo == NULL || sigAlgo == NULL)
+            return BAD_FUNC_ARG;
+
+        input[0] = first;
+        input[1] = second;
+        DecodeSigAlg(input, &hashType, &sigType);
+
+        /* cast so that compiler reminds us of unimplemented values */
+        switch ((enum SignatureAlgorithm)sigType) {
+        case anonymous_sa_algo:
+            *sigAlgo = (enum Key_Sum)0;
+            break;
+        case rsa_sa_algo:
+            *sigAlgo = RSAk;
+            break;
+        case dsa_sa_algo:
+            *sigAlgo = DSAk;
+            break;
+        case ecc_dsa_sa_algo:
+            *sigAlgo = ECDSAk;
+            break;
+        case rsa_pss_sa_algo:
+            *sigAlgo = RSAPSSk;
+            break;
+        case ed25519_sa_algo:
+            *sigAlgo = ED25519k;
+            break;
+        case rsa_pss_pss_algo:
+            *sigAlgo = RSAPSSk;
+            break;
+        case ed448_sa_algo:
+            *sigAlgo = ED448k;
+            break;
+        case falcon_level1_sa_algo:
+            *sigAlgo = FALCON_LEVEL1k;
+            break;
+        case falcon_level5_sa_algo:
+            *sigAlgo = FALCON_LEVEL5k;
+            break;
+        case dilithium_level2_sa_algo:
+            *sigAlgo = DILITHIUM_LEVEL2k;
+            break;
+        case dilithium_level3_sa_algo:
+            *sigAlgo = DILITHIUM_LEVEL3k;
+            break;
+        case dilithium_level5_sa_algo:
+            *sigAlgo = DILITHIUM_LEVEL5k;
+            break;
+        case sm2_sa_algo:
+            *sigAlgo = SM2k;
+            break;
+        case invalid_sa_algo:
+        default:
+            *hashAlgo = WC_HASH_TYPE_NONE;
+            *sigAlgo = 0;
+            return BAD_FUNC_ARG;
+        }
+
+        /* cast so that compiler reminds us of unimplemented values */
+        switch((enum wc_MACAlgorithm)hashType) {
+        case no_mac:
+        case rmd_mac: /* Don't have a RIPEMD type in wc_HashType */
+            *hashAlgo = WC_HASH_TYPE_NONE;
+            break;
+        case md5_mac:
+            *hashAlgo = WC_HASH_TYPE_MD5;
+            break;
+        case sha_mac:
+            *hashAlgo = WC_HASH_TYPE_SHA;
+            break;
+        case sha224_mac:
+            *hashAlgo = WC_HASH_TYPE_SHA224;
+            break;
+        case sha256_mac:
+            *hashAlgo = WC_HASH_TYPE_SHA256;
+            break;
+        case sha384_mac:
+            *hashAlgo = WC_HASH_TYPE_SHA384;
+            break;
+        case sha512_mac:
+            *hashAlgo = WC_HASH_TYPE_SHA512;
+            break;
+        case blake2b_mac:
+            *hashAlgo = WC_HASH_TYPE_BLAKE2B;
+            break;
+        case sm3_mac:
+#ifdef WOLFSSL_SM3
+            *hashAlgo = WC_HASH_TYPE_SM3;
+#else
+            *hashAlgo = WC_HASH_TYPE_NONE;
+#endif
+            break;
+        default:
+            *hashAlgo = WC_HASH_TYPE_NONE;
+            *sigAlgo = 0;
+            return BAD_FUNC_ARG;
+        }
+        return 0;
     }
 
     /**
@@ -29672,6 +29848,8 @@ static int wolfSSL_TicketKeyCb(WOLFSSL* ssl,
 end:
 
     (void)wc_HmacFree(&hmacCtx.hmac);
+    (void)wolfSSL_EVP_CIPHER_CTX_cleanup(evpCtx);
+
 #ifdef WOLFSSL_SMALL_STACK
     XFREE(evpCtx, ssl->heap, DYNAMIC_TYPE_TMP_BUFFER);
 #endif
@@ -30072,6 +30250,20 @@ int wolfSSL_select_next_proto(unsigned char **out, unsigned char *outLen,
     *out = (unsigned char *)clientNames + 1;
     *outLen = clientNames[0];
     return OPENSSL_NPN_NO_OVERLAP;
+}
+
+void wolfSSL_set_alpn_select_cb(WOLFSSL *ssl,
+                                int (*cb) (WOLFSSL *ssl,
+                                           const unsigned char **out,
+                                           unsigned char *outlen,
+                                           const unsigned char *in,
+                                           unsigned int inlen,
+                                           void *arg), void *arg)
+{
+    if (ssl != NULL) {
+        ssl->alpnSelect = cb;
+        ssl->alpnSelectArg = arg;
+    }
 }
 
 void wolfSSL_CTX_set_alpn_select_cb(WOLFSSL_CTX *ctx,

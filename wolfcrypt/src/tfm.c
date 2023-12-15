@@ -4051,12 +4051,16 @@ int fp_read_unsigned_bin(fp_int *a, const unsigned char *b, int c)
   /* zero the int */
   fp_zero (a);
 
+  if (c < 0) {
+      return FP_VAL;
+  }
+
   if (c == 0) {
       return FP_OKAY;
   }
 
   /* if input b excess max, then truncate */
-  if (c > 0 && (word32)c > maxC) {
+  if ((word32)c > maxC) {
      int excess = (c - maxC);
      c -= excess;
      b += excess;
@@ -4856,6 +4860,12 @@ int mp_div(fp_int * a, fp_int * b, fp_int * c, fp_int * d)
 int mp_div_2d(fp_int* a, int b, fp_int* c, fp_int* d)
 {
   fp_div_2d(a, b, c, d);
+  return MP_OKAY;
+}
+
+int mp_mod_2d(fp_int* a, int b, fp_int* c)
+{
+  fp_mod_2d(a, b, c);
   return MP_OKAY;
 }
 

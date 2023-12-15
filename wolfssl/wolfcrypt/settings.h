@@ -297,7 +297,11 @@
     #if FIPS_VERSION_LT(2,0)
         #define WC_RNG RNG
     #else
-        #ifndef WOLFSSL_STM32L4
+        /* RNG needs to be defined to WC_RNG anytime another library on the
+         * system or other set of headers included by wolfSSL already defines
+         * RNG. Examples are:
+         * wolfEngine, wolfProvider and potentially other use-cases */
+        #ifndef RNG
             #define RNG WC_RNG
         #endif
     #endif
@@ -378,22 +382,51 @@
 #endif
 
 #if defined(WOLFSSL_ESPIDF)
-    #define FREERTOS
-    #define WOLFSSL_LWIP
-    #define NO_WRITEV
     #define SIZEOF_LONG_LONG 8
-    #define NO_WOLFSSL_DIR
-    #define WOLFSSL_NO_CURRDIR
+    #ifndef NO_ESPIDF_DEFAULT
+        #define FREERTOS
+        #define WOLFSSL_LWIP
+        #define NO_WRITEV
+        #define NO_WOLFSSL_DIR
+        #define WOLFSSL_NO_CURRDIR
 
-    #define TFM_TIMING_RESISTANT
-    #define ECC_TIMING_RESISTANT
-    #define WC_RSA_BLINDING
+        #define TFM_TIMING_RESISTANT
+        #define ECC_TIMING_RESISTANT
+        #define WC_RSA_BLINDING
+        #define WC_NO_CACHE_RESISTANT
+    #endif /* !WOLFSSL_ESPIDF_NO_DEFAULT */
 
 #if defined(WOLFSSL_ESPWROOM32)
     /* WOLFSSL_ESPWROOM32 is a legacy macro gate.
     ** Not be be confused with WOLFSSL_ESPWROOM32SE, naming a specific board */
     #undef WOLFSSL_ESP32
     #define WOLFSSL_ESP32
+#endif
+
+#if defined(NO_ESP32WROOM32_CRYPT)
+    #undef NO_ESP32WROOM32_CRYPT
+    #define NO_ESP32_CRYPT
+    #error "Please use NO_ESP32_CRYPT not NO_ESP32WROOM32_CRYPT"
+#endif
+
+#if defined(NO_WOLFSSL_ESP32WROOM32_CRYPT_HASH)
+    #undef NO_WOLFSSL_ESP32WROOM32_CRYPT_HASH
+    #define NO_WOLFSSL_ESP32_CRYPT_HASH
+    #error "Please use NO_WOLFSSL_ESP32_CRYPT_HASH not NO_ESP32WROOM32_CRYPT"
+#endif
+
+#if defined(NO_WOLFSSL_ESP32WROOM32_CRYPT_AES)
+    #undef NO_WOLFSSL_ESP32WROOM32_CRYPT_AES
+    #define NO_WOLFSSL_ESP32_CRYPT_AES
+    #error "Please use NO_WOLFSSL_ESP32_CRYPT_AES" \
+           " not " "NO_WOLFSSL_ESP32WROOM32_CRYPT_AES"
+#endif
+
+#if defined(NO_WOLFSSL_ESP32WROOM32_CRYPT_RSA_PRI)
+    #undef NO_WOLFSSL_ESP32WROOM32_CRYPT_RSA_PRI
+    #define NO_WOLFSSL_ESP32_CRYPT_RSA_PRI
+    #error "Please use NO_WOLFSSL_ESP32_CRYPT_RSA_PRI" \
+           " not " "NO_WOLFSSL_ESP32WROOM32_CRYPT_RSA_PRI"
 #endif
 
 #if defined(WOLFSSL_ESP32) || defined(WOLFSSL_ESPWROOM32SE)
@@ -407,9 +440,9 @@
     #endif
 
     #if defined(WOLFSSL_SP_RISCV32)
-        #if defined(CONFIG_IDF_TARGET_ESP32C2) \
-         || defined(CONFIG_IDF_TARGET_ESP32C3) \
-         || defined(CONFIG_IDF_TARGET_ESP32C6)
+        #if defined(CONFIG_IDF_TARGET_ESP32C2) || \
+            defined(CONFIG_IDF_TARGET_ESP32C3) || \
+            defined(CONFIG_IDF_TARGET_ESP32C6)
             /* ok, only the known C2, C3, C6 chips allowed */
         #else
             #error "WOLFSSL_SP_RISCV32 can only be used on RISC-V architecture"
@@ -3116,6 +3149,10 @@ extern void uITRON4_free(void *p) ;
 
 #if defined(WOLFSSL_DTLS_CID) && !defined(WOLFSSL_DTLS13)
 #error "ConnectionID is supported for DTLSv1.3 only"
+#endif
+
+#if defined(WOLFSSL_QUIC) && defined(WOLFSSL_CALLBACKS)
+    #error WOLFSSL_QUIC is incompatible with WOLFSSL_CALLBACKS.
 #endif
 
 /* RSA Key Checking is disabled by default unless WOLFSSL_RSA_KEY_CHECK is
