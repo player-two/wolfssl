@@ -14409,19 +14409,19 @@ ClientSession* AddSessionToClientCache(int side, int row, int idx, byte* serverI
             }
             if (error == 0) {
                 WOLFSSL_MSG("Adding client cache entry");
+
+                ret = &ClientCache[clientRow].Clients[clientIdx];
+
                 if (ClientCache[clientRow].totalCount < CLIENT_SESSIONS_PER_ROW)
                     ClientCache[clientRow].totalCount++;
                 ClientCache[clientRow].nextIdx++;
                 ClientCache[clientRow].nextIdx %= CLIENT_SESSIONS_PER_ROW;
             }
 
-            ret = &ClientCache[clientRow].Clients[clientIdx];
-
             wc_UnLockMutex(&clisession_mutex);
         }
         else {
             WOLFSSL_MSG("Hash session or lock failed");
-            error = -1;
         }
     }
     else {
@@ -15762,10 +15762,11 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
             return BAD_FUNC_ARG;
         }
 
-        verify = GET_VERIFY_SETTING_CTX(ctx);
-        if (WOLFSSL_LOAD_VERIFY_DEFAULT_FLAGS &
-                 WOLFSSL_LOAD_FLAG_DATE_ERR_OKAY)
+        #if (WOLFSSL_LOAD_VERIFY_DEFAULT_FLAGS & WOLFSSL_LOAD_FLAG_DATE_ERR_OKAY)
             verify = VERIFY_SKIP_DATE;
+        #else
+            verify = GET_VERIFY_SETTING_CTX(ctx);
+        #endif
 
         if (format == WOLFSSL_FILETYPE_PEM)
             return ProcessChainBuffer(ctx, in, sz, format, TRUSTED_PEER_TYPE,
@@ -16393,7 +16394,7 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
         /* cast so that compiler reminds us of unimplemented values */
         switch ((enum SignatureAlgorithm)sigType) {
         case anonymous_sa_algo:
-            *sigAlgo = (enum Key_Sum)0;
+            *sigAlgo = ANONk;
             break;
         case rsa_sa_algo:
             *sigAlgo = RSAk;

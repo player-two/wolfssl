@@ -27684,6 +27684,14 @@ static int myCEKwrapFunc(PKCS7* pkcs7, byte* cek, word32 cekSz, byte* keyId,
 {
     int ret = -1;
 
+    (void)cekSz;
+    (void)cek;
+    (void)outSz;
+    (void)keyIdSz;
+    (void)direction;
+    (void)orginKey; /* used with KAKRI */
+    (void)orginKeySz;
+
     if (out == NULL)
         return BAD_FUNC_ARG;
 
@@ -27715,15 +27723,6 @@ static int myCEKwrapFunc(PKCS7* pkcs7, byte* cek, word32 cekSz, byte* keyId,
             WOLFSSL_MSG("Unsupported key wrap algorithm in example");
             return BAD_KEYWRAP_ALG_E;
     };
-
-    (void)cekSz;
-    (void)cek;
-    (void)outSz;
-    (void)keyIdSz;
-    (void)direction;
-    (void)orginKey; /* used with KAKRI */
-    (void)orginKeySz;
-    return ret;
 }
 #endif /* HAVE_PKCS7 && !NO_AES && HAVE_AES_CBC && !NO_AES_256 */
 
@@ -29064,7 +29063,9 @@ static int test_wc_SignatureGetSize_ecc(void)
     ExpectIntGT(wc_SignatureGetSize(sig_type, &ecc, key_len), 0);
 
     /* Test bad args */
+    /* // NOLINTBEGIN(clang-analyzer-optin.core.EnumCastOutOfRange) */
     sig_type = (enum wc_SignatureType) 100;
+    /* // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange) */
     ExpectIntEQ(wc_SignatureGetSize(sig_type, &ecc, key_len), BAD_FUNC_ARG);
     sig_type = WC_SIGNATURE_TYPE_ECC;
     ExpectIntEQ(wc_SignatureGetSize(sig_type, NULL, key_len), 0);
@@ -29129,7 +29130,9 @@ static int test_wc_SignatureGetSize_rsa(void)
     ExpectIntGT(wc_SignatureGetSize(sig_type, &rsa_key, key_len), 0);
 
     /* Test bad args */
+    /* // NOLINTBEGIN(clang-analyzer-optin.core.EnumCastOutOfRange) */
     sig_type = (enum wc_SignatureType)100;
+    /* // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange) */
     ExpectIntEQ(wc_SignatureGetSize(sig_type, &rsa_key, key_len), BAD_FUNC_ARG);
     sig_type = WC_SIGNATURE_TYPE_RSA;
     #ifndef HAVE_USER_RSA
