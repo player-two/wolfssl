@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     _ = b.addModule("wolfssl", .{
-        .source_file = .{
+        .root_source_file = .{
             .path = "wrapper/Zig/binding.zig",
         },
     });
@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
         .HAVE_HASHDRBG = {},
         .HAVE_HKDF = {},
         .HAVE_POLY1305 = {},
-        .HAVE_PTHREAD = if (target.getAbi() != .msvc) {} else null,
+        .HAVE_PTHREAD = if (target.result.abi != .msvc) {} else null,
         .HAVE_SUPPORTED_CURVES = {},
         .HAVE_THREAD_LS = {},
         .HAVE_TLS_EXTENSIONS = {},
@@ -66,7 +66,7 @@ pub fn build(b: *std.Build) void {
         .version = .{
             .major = 5,
             .minor = 6,
-            .patch = 3,
+            .patch = 7,
         },
     }) else b.addStaticLibrary(.{
         .name = "wolfssl",
@@ -76,7 +76,7 @@ pub fn build(b: *std.Build) void {
 
     switch (optimize) {
         .Debug, .ReleaseSafe => lib.bundle_compiler_rt = true,
-        else => lib.strip = true,
+        else => lib.root_module.strip = true,
     }
     lib.addConfigHeader(config);
     lib.addIncludePath(Path.relative(config.include_path));
@@ -113,21 +113,21 @@ pub fn build(b: *std.Build) void {
     lib.defineCMacro("SESSION_CERTS", null);
     lib.defineCMacro("OPENSSL_EXTRA_X509", null);
     lib.defineCMacro("OPENSSL_EXTRA_X509_SMALL", null);
-    if (lib.target.getAbi() == .msvc) {
+    if (lib.rootModuleTarget().abi == .msvc) {
         lib.defineCMacro("SINGLE_THREADED", null);
         lib.linkSystemLibrary("advapi32");
     } else {
         lib.defineCMacro("HAVE_SYS_TIME_H", null);
         lib.defineCMacro("HAVE_PTHREAD", null);
     }
-    if (target.isWindows() and target.abi != .msvc) {
+    if (lib.rootModuleTarget().isMinGW()) {
         const winpthreads_dep = b.dependency("winpthreads", .{
             .target = target,
             .optimize = optimize,
         });
         const pthreads = winpthreads_dep.artifact("winpthreads");
-        for (pthreads.include_dirs.items) |include| {
-            lib.include_dirs.append(include) catch {};
+        for (pthreads.root_module.include_dirs.items) |include| {
+            lib.root_module.include_dirs.append(b.allocator, include) catch {};
         }
         lib.linkLibrary(pthreads);
     }
@@ -207,10 +207,10 @@ fn buildExe(b: *std.Build, info: BuildInfo) void {
     });
     exe.addCSourceFile(.{ .file = Path.relative(info.path), .flags = cflags });
     // get library include headers
-    for (info.lib.include_dirs.items) |include| {
-        exe.include_dirs.append(include) catch {};
+    for (info.lib.root_module.include_dirs.items) |include| {
+        exe.root_module.include_dirs.append(b.allocator, include) catch {};
     }
-    if (info.target.isWindows()) {
+    if (exe.rootModuleTarget().os.tag == .windows) {
         exe.want_lto = false;
         exe.linkSystemLibrary("ws2_32");
         exe.linkSystemLibrary("crypt32");
@@ -384,15 +384,15 @@ fn sdkPath(comptime suffix: []const u8) []const u8 {
     };
 }
 
-fn isX86(target: std.zig.CrossTarget) bool {
-    return switch (target.getCpuArch()) {
+fn isX86(target: std.Build.ResolvedTarget) bool {
+    return switch (target.result.cpu.arch) {
         .x86, .x86_64 => true,
         else => false,
     };
 }
 
 const BuildInfo = struct {
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     path: []const u8,
     lib: *std.Build.Step.Compile,
