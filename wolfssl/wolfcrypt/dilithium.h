@@ -35,6 +35,7 @@
 
 #ifdef HAVE_LIBOQS
 #include <oqs/oqs.h>
+#include <wolfssl/wolfcrypt/port/liboqs/liboqs.h>
 #endif
 
 #ifdef __cplusplus
@@ -84,7 +85,7 @@ struct dilithium_key {
 
 WOLFSSL_API
 int wc_dilithium_sign_msg(const byte* in, word32 inLen, byte* out, word32 *outLen,
-                       dilithium_key* key);
+                       dilithium_key* key, WC_RNG* rng);
 WOLFSSL_API
 int wc_dilithium_verify_msg(const byte* sig, word32 sigLen, const byte* msg,
                          word32 msgLen, int* res, dilithium_key* key);
@@ -109,7 +110,7 @@ int wc_dilithium_import_private_key(const byte* priv, word32 privSz,
                                  dilithium_key* key);
 
 WOLFSSL_API
-int wc_dilithium_export_public(dilithium_key*, byte* out, word32* outLen);
+int wc_dilithium_export_public(dilithium_key* key, byte* out, word32* outLen);
 WOLFSSL_API
 int wc_dilithium_export_private_only(dilithium_key* key, byte* out, word32* outLen);
 WOLFSSL_API

@@ -3240,20 +3240,6 @@ int wolfSSL_write(WOLFSSL* ssl, const void* data, int sz)
         return BAD_FUNC_ARG;
     }
 #endif
-#ifdef WOLFSSL_EARLY_DATA
-    if (IsAtLeastTLSv1_3(ssl->version) &&
-            ssl->options.side == WOLFSSL_SERVER_END &&
-            ssl->options.acceptState >= TLS13_ACCEPT_FINISHED_SENT) {
-        /* We can send data without waiting on peer finished msg */
-        WOLFSSL_MSG("server sending data before receiving client finished");
-    }
-    else if (ssl->earlyData != no_early_data &&
-            (ret = wolfSSL_negotiate(ssl)) < 0) {
-        ssl->error = ret;
-        return WOLFSSL_FATAL_ERROR;
-    }
-    ssl->earlyData = no_early_data;
-#endif
 
 #ifdef HAVE_WRITE_DUP
     { /* local variable scope */
@@ -5610,7 +5596,8 @@ Signer* GetCAByName(void* vp, byte* hash)
 /* add a trusted peer cert to linked list */
 int AddTrustedPeer(WOLFSSL_CERT_MANAGER* cm, DerBuffer** pDer, int verify)
 {
-    int ret, row;
+    int ret = 0;
+    int row = 0;
     TrustedPeerCert* peerCert;
     DecodedCert* cert;
     DerBuffer*   der = *pDer;
@@ -9948,7 +9935,7 @@ static WOLFSSL_EVP_PKEY* _d2i_PublicKey(int type, WOLFSSL_EVP_PKEY** out,
     word32 idx = 0, algId;
     word16 pkcs8HeaderSz = 0;
     WOLFSSL_EVP_PKEY* local;
-    int opt;
+    int opt = 0;
 
     (void)opt;
 
@@ -10281,7 +10268,7 @@ int wolfSSL_use_RSAPrivateKey_ASN1(WOLFSSL* ssl, unsigned char* der, long derSz)
 
 int wolfSSL_use_certificate(WOLFSSL* ssl, WOLFSSL_X509* x509)
 {
-    long idx;
+    long idx = 0;
 
     WOLFSSL_ENTER("wolfSSL_use_certificate");
     if (x509 != NULL && ssl != NULL && x509->derCert != NULL) {
@@ -10527,7 +10514,7 @@ WOLFSSL_API int wolfSSL_get_negotiated_server_cert_type(WOLFSSL* ssl, int* tp)
 int wolfSSL_use_certificate_ASN1(WOLFSSL* ssl, const unsigned char* der,
                                  int derSz)
 {
-    long idx;
+    long idx = 0;
 
     WOLFSSL_ENTER("wolfSSL_use_certificate_ASN1");
     if (der != NULL && ssl != NULL) {
@@ -11736,9 +11723,14 @@ static int wolfSSL_parse_cipher_list(WOLFSSL_CTX* ctx, Suites* suites,
     if (suites->suiteSz > 0) {
         suitesCpy = (byte*)XMALLOC(suites->suiteSz, NULL,
                 DYNAMIC_TYPE_TMP_BUFFER);
-        if (suitesCpy == NULL)
+        if (suitesCpy == NULL) {
             return WOLFSSL_FAILURE;
+        }
+
+        XMEMSET(suitesCpy, 0, suites->suiteSz);
     }
+#else
+        XMEMSET(suitesCpy, 0, sizeof(suitesCpy));
 #endif
 
     if (suites->suiteSz > 0)
@@ -14469,6 +14461,9 @@ WOLFSSL_SESSION* ClientSessionToSession(const WOLFSSL_SESSION* session)
             WOLFSSL_MSG("Client cache serverRow or serverIdx invalid");
             error = -1;
         }
+        /* Prevent memory access before clientSession->serverRow and
+         * clientSession->serverIdx are sanitized. */
+        XFENCE();
         if (error == 0) {
             /* Lock row */
             sessRow = &SessionCache[clientSession->serverRow];
@@ -19779,12 +19774,17 @@ void wolfSSL_FreeSession(WOLFSSL_CTX* ctx, WOLFSSL_SESSION* session)
 #ifdef HAVE_SESSION_TICKET
     if (session->ticketLenAlloc > 0) {
         XFREE(session->ticket, session->heap, DYNAMIC_TYPE_SESSION_TICK);
+        session->ticket = session->staticTicket;
+        session->ticketLen = 0;
+        session->ticketLenAlloc = 0;
     }
 #if defined(WOLFSSL_TLS13) && defined(WOLFSSL_TICKET_NONCE_MALLOC) &&          \
     (!defined(HAVE_FIPS) || (defined(FIPS_VERSION_GE) && FIPS_VERSION_GE(5,3)))
     if (session->ticketNonce.data != session->ticketNonce.dataStatic) {
         XFREE(session->ticketNonce.data, session->heap,
             DYNAMIC_TYPE_SESSION_TICK);
+        session->ticketNonce.data = session->ticketNonce.dataStatic;
+        session->ticketNonce.len = 0;
     }
 #endif /* WOLFSSL_TLS13 && WOLFSSL_TICKET_NONCE_MALLOC && FIPS_VERSION_GE(5,3)*/
 #endif
@@ -23151,7 +23151,7 @@ WOLFSSL_SESSION* wolfSSL_d2i_SSL_SESSION(WOLFSSL_SESSION** sess,
     WOLFSSL_SESSION* s = NULL;
     int ret = 0;
 #if defined(HAVE_EXT_CACHE)
-    int idx;
+    int idx = 0;
     byte* data;
 #ifdef SESSION_CERTS
     int j;
@@ -24176,7 +24176,7 @@ static int pem_write_pubkey(WOLFSSL_EVP_PKEY* key, void* heap, byte** derBuf,
     }
 
     switch (key->type) {
-#if defined(WOLFSSL_KEY_GEN) && !defined(NO_RSA) && !defined(HAVE_USER_RSA)
+#if defined(WOLFSSL_KEY_GEN) && !defined(NO_RSA)
         case EVP_PKEY_RSA:
             if ((sz = wolfSSL_RSA_To_Der(key->rsa, &buf, 1, heap))
                     < 0) {
@@ -24184,7 +24184,7 @@ static int pem_write_pubkey(WOLFSSL_EVP_PKEY* key, void* heap, byte** derBuf,
                 break;
             }
             break;
-#endif /* WOLFSSL_KEY_GEN && !NO_RSA && !HAVE_USER_RSA */
+#endif /* WOLFSSL_KEY_GEN && !NO_RSA */
 #if !defined(NO_DSA) && !defined(HAVE_SELFTEST) && (defined(WOLFSSL_KEY_GEN) || \
         defined(WOLFSSL_CERT_GEN))
         case EVP_PKEY_DSA:
@@ -24529,7 +24529,7 @@ static int populate_groups(int* groups, int max_count, char *list)
 int wolfSSL_CTX_set1_groups_list(WOLFSSL_CTX *ctx, char *list)
 {
     int groups[WOLFSSL_MAX_GROUP_COUNT];
-    int count;
+    int count = 0;
 
     if (!ctx || !list) {
         return WOLFSSL_FAILURE;
@@ -24546,7 +24546,7 @@ int wolfSSL_CTX_set1_groups_list(WOLFSSL_CTX *ctx, char *list)
 int wolfSSL_set1_groups_list(WOLFSSL *ssl, char *list)
 {
     int groups[WOLFSSL_MAX_GROUP_COUNT];
-    int count;
+    int count = 0;
 
     if (!ssl || !list) {
         return WOLFSSL_FAILURE;
@@ -24770,7 +24770,7 @@ byte* wolfSSL_get_chain_cert(WOLFSSL_X509_CHAIN* chain, int idx)
 /* Get peer's wolfSSL X509 certificate at index (idx) */
 WOLFSSL_X509* wolfSSL_get_chain_X509(WOLFSSL_X509_CHAIN* chain, int idx)
 {
-    int          ret;
+    int          ret = 0;
     WOLFSSL_X509* x509 = NULL;
 #ifdef WOLFSSL_SMALL_STACK
     DecodedCert* cert = NULL;
@@ -26839,7 +26839,7 @@ int wolfSSL_CTX_use_PrivateKey(WOLFSSL_CTX *ctx, WOLFSSL_EVP_PKEY *pkey)
     }
 
     switch (pkey->type) {
-#if defined(WOLFSSL_KEY_GEN) && !defined(HAVE_USER_RSA) && !defined(NO_RSA)
+#if defined(WOLFSSL_KEY_GEN) && !defined(NO_RSA)
     case EVP_PKEY_RSA:
         WOLFSSL_MSG("populating RSA key");
         if (PopulateRSAEvpPkeyDer(pkey) != WOLFSSL_SUCCESS)
@@ -27494,8 +27494,7 @@ int wolfSSL_CTX_use_certificate_ASN1(WOLFSSL_CTX *ctx, int derSz,
 }
 
 
-#if !defined(HAVE_FAST_RSA) && defined(WOLFSSL_KEY_GEN) && \
-    !defined(NO_RSA) && !defined(HAVE_USER_RSA)
+#if defined(WOLFSSL_KEY_GEN) && !defined(NO_RSA)
 /* Adds the rsa private key to the user ctx.
 Returns WOLFSSL_SUCCESS if no error, returns WOLFSSL_FAILURE otherwise.*/
 int wolfSSL_CTX_use_RSAPrivateKey(WOLFSSL_CTX* ctx, WOLFSSL_RSA* rsa)
@@ -27533,7 +27532,7 @@ int wolfSSL_CTX_use_RSAPrivateKey(WOLFSSL_CTX* ctx, WOLFSSL_RSA* rsa)
     XFREE(maxDerBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return ret;
 }
-#endif /* NO_RSA && !HAVE_FAST_RSA */
+#endif /* WOLFSSL_KEY_GEN && !NO_RSA */
 
 
 #ifndef NO_BIO
@@ -28310,6 +28309,7 @@ static int wolfSSL_SESSION_print_ticket(WOLFSSL_BIO* bio,
 
     for (i = 0; i < sz;) {
         char asc[16];
+        XMEMSET(asc, 0, sizeof(asc));
 
         if (sz - i < 16) {
             if (wolfSSL_BIO_printf(bio, "%s%04X -", tab, tag + (sz - i)) <= 0)

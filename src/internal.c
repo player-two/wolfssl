@@ -21160,11 +21160,11 @@ default:
                 ssl->keys.decryptedCur = 1;
 #ifdef WOLFSSL_TLS13
                 if (ssl->options.tls1_3) {
-                    /* end of plaintext */
-                    word16 i = (word16)(ssl->buffers.inputBuffer.idx +
-                                 ssl->curSize - ssl->specs.aead_mac_size);
-
-                    if (i > ssl->buffers.inputBuffer.length) {
+                    word32 i = (ssl->buffers.inputBuffer.idx +
+                        ssl->curSize - ssl->specs.aead_mac_size);
+                    /* check that the end of the logical length doesn't extend
+                     * past the real buffer */
+                    if (i > ssl->buffers.inputBuffer.length || i == 0) {
                         WOLFSSL_ERROR(BUFFER_ERROR);
                         return BUFFER_ERROR;
                     }
@@ -23944,8 +23944,11 @@ static int CheckTLS13AEADSendLimit(WOLFSSL* ssl)
                 ssl->keys.sequence_number_lo);
     }
 
-    if (w64GTE(seq, limit))
+    if (w64GTE(seq, limit)) { /* cppcheck-suppress uninitvar
+                               * (false positive from cppcheck-2.13.0)
+                               */
         return Tls13UpdateKeys(ssl); /* Need to generate new keys */
+    }
 
     return 0;
 }
@@ -23982,7 +23985,9 @@ int SendData(WOLFSSL* ssl, const void* data, int sz)
     }
 
 #ifdef WOLFSSL_EARLY_DATA
-    if (ssl->earlyData != no_early_data) {
+    if (ssl->options.side == WOLFSSL_CLIENT_END &&
+            ssl->earlyData != no_early_data &&
+            ssl->earlyData != done_early_data) {
         if (ssl->options.handShakeState == HANDSHAKE_DONE) {
             WOLFSSL_MSG("handshake complete, trying to send early data");
             ssl->error = BUILD_MSG_ERROR;
@@ -24076,7 +24081,9 @@ int SendData(WOLFSSL* ssl, const void* data, int sz)
                 return ssl->error = BAD_STATE_E;
 
 #ifdef WOLFSSL_EARLY_DATA
-            isEarlyData = ssl->earlyData != no_early_data;
+            isEarlyData = ssl->options.side == WOLFSSL_CLIENT_END &&
+                    ssl->earlyData != no_early_data &&
+                    ssl->earlyData != done_early_data;
 #endif
 
             if (isEarlyData) {
@@ -24244,7 +24251,8 @@ int ReceiveData(WOLFSSL* ssl, byte* output, int sz, int peek)
     }
 
 #ifdef WOLFSSL_EARLY_DATA
-    if (ssl->earlyData != no_early_data) {
+    if (ssl->options.side == WOLFSSL_SERVER_END &&
+          ssl->earlyData > early_data_ext && ssl->earlyData < done_early_data) {
     }
     else
 #endif
@@ -35828,7 +35836,13 @@ static int DoSessionTicket(WOLFSSL* ssl, const byte* input, word32* inOutIdx,
 #endif
 
 #ifdef OPENSSL_EXTRA
-        ssl->clSuites = clSuites;
+        ssl->clSuites = clSuites; /* cppcheck-suppress autoVariables
+                                   *
+                                   * (suppress warning that ssl, a persistent
+                                   * non-local allocation, has its ->clSuites
+                                   * set to clSuites, a local stack allocation.
+                                   * we clear this assignment before returning.)
+                                   */
         /* Give user last chance to provide a cert for cipher selection */
         if (ret == 0 && ssl->ctx->certSetupCb != NULL)
             ret = CertSetupCbWrapper(ssl);

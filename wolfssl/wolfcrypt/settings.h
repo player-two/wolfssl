@@ -1193,7 +1193,12 @@ extern void uITRON4_free(void *p) ;
     #if !defined(XMALLOC_OVERRIDE) && !defined(XMALLOC_USER)
         #define XMALLOC_OVERRIDE
         #define XMALLOC(s, h, t)    ((void)(h), (void)(t), (void *)_mem_alloc_system((s)))
-        #define XFREE(p, h, t)      {void* xp = (p); (void)(h); (void)(t); if ((xp)) _mem_free((xp));}
+        #ifdef WOLFSSL_XFREE_NO_NULLNESS_CHECK
+            #define XFREE(p, h, t)      {(void)(h); (void)(t); _mem_free(p);}
+        #else
+            #define XFREE(p, h, t)      {void* xp = (p); (void)(h); (void)(t); if ((xp)) _mem_free((xp));}
+        #endif
+
         /* Note: MQX has no realloc, using fastmath above */
     #endif
     #ifdef USE_FAST_MATH
@@ -1224,7 +1229,11 @@ extern void uITRON4_free(void *p) ;
     #endif
 
     #define XMALLOC(s, h, t)    ((void)(h), (void)(t), (void *)_mem_alloc_system((s)))
-    #define XFREE(p, h, t)      {void* xp = (p); (void)(h); (void)(t); if ((xp)) _mem_free((xp));}
+    #ifdef WOLFSSL_XFREE_NO_NULLNESS_CHECK
+        #define XFREE(p, h, t)      {(void)(h); (void)(t); _mem_free(p);}
+    #else
+        #define XFREE(p, h, t)      {void* xp = (p); (void)(h); (void)(t); if ((xp)) _mem_free((xp));}
+    #endif
     #define XREALLOC(p, n, h, t) _mem_realloc((p), (n)) /* since MQX 4.1.2 */
 
     #define MQX_FILE_PTR FILE *
@@ -1835,7 +1844,10 @@ extern void uITRON4_free(void *p) ;
     #if !defined(WOLFSSL_XILINX_CRYPT_VERSAL)
         #define NO_DEV_RANDOM
     #endif
+    #undef  NO_WOLFSSL_DIR
     #define NO_WOLFSSL_DIR
+
+    #undef  HAVE_AESGCM
     #define HAVE_AESGCM
 #endif
 
@@ -1924,7 +1936,7 @@ extern void uITRON4_free(void *p) ;
     void *z_realloc(void *ptr, size_t size);
     #define realloc   z_realloc
 
-    #ifndef CONFIG_NET_SOCKETS_POSIX_NAMES
+    #if !defined(CONFIG_NET_SOCKETS_POSIX_NAMES) && !defined(CONFIG_POSIX_API)
     #define CONFIG_NET_SOCKETS_POSIX_NAMES
     #endif
 #endif
@@ -2919,7 +2931,7 @@ extern void uITRON4_free(void *p) ;
 #if defined(WOLFCRYPT_ONLY) && defined(NO_AES) && !defined(WOLFSSL_SHA384) && \
     !defined(WOLFSSL_SHA512) && defined(WC_NO_RNG) && \
     !defined(WOLFSSL_SP_MATH) && !defined(WOLFSSL_SP_MATH_ALL) \
-    && !defined(USE_FAST_MATH)
+    && !defined(USE_FAST_MATH) && defined(NO_SHA256)
     #undef  WOLFSSL_NO_FORCE_ZERO
     #define WOLFSSL_NO_FORCE_ZERO
 #endif
@@ -3177,7 +3189,6 @@ extern void uITRON4_free(void *p) ;
  *   RSA public only, CAVP selftest, fast RSA, user RSA, QAT or CryptoCell */
 #if (defined(WOLFSSL_RSA_KEY_CHECK) || (defined(HAVE_FIPS) && FIPS_VERSION_GE(2,0))) && \
     !defined(WOLFSSL_NO_RSA_KEY_CHECK) && !defined(WOLFSSL_RSA_PUBLIC_ONLY) && \
-    !defined(HAVE_USER_RSA) && !defined(HAVE_FAST_RSA) && \
     !defined(HAVE_INTEL_QA) && !defined(WOLFSSL_CRYPTOCELL) && \
     !defined(HAVE_SELFTEST)
 

@@ -59,7 +59,7 @@
  */
 int wc_dilithium_sign_msg(const byte* in, word32 inLen,
                           byte* out, word32 *outLen,
-                          dilithium_key* key)
+                          dilithium_key* key, WC_RNG* rng)
 {
     int ret = 0;
 #ifdef HAVE_LIBOQS
@@ -107,6 +107,10 @@ int wc_dilithium_sign_msg(const byte* in, word32 inLen,
         localOutLen = *outLen;
     }
 
+    if (ret == 0) {
+        ret = wolfSSL_liboqsRngMutexLock(rng);
+    }
+
     if ((ret == 0) &&
         (OQS_SIG_sign(oqssig, out, &localOutLen, in, inLen, key->k)
          == OQS_ERROR)) {
@@ -116,6 +120,8 @@ int wc_dilithium_sign_msg(const byte* in, word32 inLen,
     if (ret == 0) {
         *outLen = (word32)localOutLen;
     }
+
+    wolfSSL_liboqsRngMutexUnlock();
 
     if (oqssig != NULL) {
         OQS_SIG_free(oqssig);
@@ -199,7 +205,7 @@ int wc_dilithium_init(dilithium_key* key)
         return BAD_FUNC_ARG;
     }
 
-    ForceZero(key, sizeof(key));
+    ForceZero(key, sizeof(*key));
     return 0;
 }
 
@@ -252,7 +258,7 @@ int wc_dilithium_get_level(dilithium_key* key, byte* level)
 void wc_dilithium_free(dilithium_key* key)
 {
     if (key != NULL) {
-        ForceZero(key, sizeof(key));
+        ForceZero(key, sizeof(*key));
     }
 }
 

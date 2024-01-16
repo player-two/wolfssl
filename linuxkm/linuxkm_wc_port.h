@@ -333,7 +333,7 @@
             #endif
             typeof(nr_cpu_ids) *nr_cpu_ids;
 
-            #if defined(CONFIG_SMP) && (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0))
+            #if defined(CONFIG_SMP) && (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)) && !defined(WOLFSSL_COMMERCIAL_LICENSE)
                 /* note the current and needed version of these were added in af449901b8 (2020-Sep-17) */
                 typeof(migrate_disable) *migrate_disable;
                 typeof(migrate_enable) *migrate_enable;
@@ -341,15 +341,20 @@
 
             #ifdef CONFIG_X86
                 typeof(irq_fpu_usable) *irq_fpu_usable;
-                /* kernel_fpu_begin() replaced by kernel_fpu_begin_mask() in commit e4512289,
-                 * released in kernel 5.11, backported to 5.4.93
-                 */
-                #ifdef kernel_fpu_begin
-                    typeof(kernel_fpu_begin_mask) *kernel_fpu_begin_mask;
-                #else
-                    typeof(kernel_fpu_begin) *kernel_fpu_begin;
-                #endif
-                typeof(kernel_fpu_end) *kernel_fpu_end;
+                #ifdef WOLFSSL_COMMERCIAL_LICENSE
+                    typeof(fpregs_lock) *fpregs_lock;
+                    typeof(fpregs_lock) *fpregs_unlock;
+                #else /* !WOLFSSL_COMMERCIAL_LICENSE */
+                    /* kernel_fpu_begin() replaced by kernel_fpu_begin_mask() in commit e4512289,
+                     * released in kernel 5.11, backported to 5.4.93
+                     */
+                    #ifdef kernel_fpu_begin
+                        typeof(kernel_fpu_begin_mask) *kernel_fpu_begin_mask;
+                    #else
+                        typeof(kernel_fpu_begin) *kernel_fpu_begin;
+                    #endif
+                    typeof(kernel_fpu_end) *kernel_fpu_end;
+                #endif /* !defined(WOLFSSL_COMMERCIAL_LICENSE) */
             #else /* !CONFIG_X86 */
                 #error WOLFSSL_LINUXKM_USE_SAVE_VECTOR_REGISTERS is set for an unsupported architecture.
             #endif /* arch */
@@ -472,19 +477,24 @@
         #endif
         #define nr_cpu_ids (*(wolfssl_linuxkm_get_pie_redirect_table()->nr_cpu_ids))
 
-        #if defined(CONFIG_SMP) && (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0))
+        #if defined(CONFIG_SMP) && (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)) && !defined(WOLFSSL_COMMERCIAL_LICENSE)
             #define migrate_disable (*(wolfssl_linuxkm_get_pie_redirect_table()->migrate_disable))
             #define migrate_enable (*(wolfssl_linuxkm_get_pie_redirect_table()->migrate_enable))
         #endif
 
         #ifdef CONFIG_X86
             #define irq_fpu_usable (wolfssl_linuxkm_get_pie_redirect_table()->irq_fpu_usable)
-            #ifdef kernel_fpu_begin
-                #define kernel_fpu_begin_mask (wolfssl_linuxkm_get_pie_redirect_table()->kernel_fpu_begin_mask)
-            #else
-                #define kernel_fpu_begin (wolfssl_linuxkm_get_pie_redirect_table()->kernel_fpu_begin)
-            #endif
-            #define kernel_fpu_end (wolfssl_linuxkm_get_pie_redirect_table()->kernel_fpu_end)
+            #ifdef WOLFSSL_COMMERCIAL_LICENSE
+                #define fpregs_lock() (wolfssl_linuxkm_get_pie_redirect_table()->fpregs_lock())
+                #define fpregs_unlock() (wolfssl_linuxkm_get_pie_redirect_table()->fpregs_unlock())
+            #else /* !defined(WOLFSSL_COMMERCIAL_LICENSE) */
+                #ifdef kernel_fpu_begin
+                    #define kernel_fpu_begin_mask (wolfssl_linuxkm_get_pie_redirect_table()->kernel_fpu_begin_mask)
+                #else
+                    #define kernel_fpu_begin (wolfssl_linuxkm_get_pie_redirect_table()->kernel_fpu_begin)
+                #endif
+                #define kernel_fpu_end (wolfssl_linuxkm_get_pie_redirect_table()->kernel_fpu_end)
+            #endif /* !defined(WOLFSSL_COMMERCIAL_LICENSE) */
         #else /* !CONFIG_X86 */
             #error WOLFSSL_LINUXKM_USE_SAVE_VECTOR_REGISTERS is set for an unsupported architecture.
         #endif /* archs */
@@ -636,11 +646,19 @@
 #ifdef WOLFSSL_TRACK_MEMORY
     #include <wolfssl/wolfcrypt/memory.h>
     #define XMALLOC(s, h, t)     ({(void)(h); (void)(t); wolfSSL_Malloc(s);})
-    #define XFREE(p, h, t)       ({void* _xp; (void)(h); _xp = (p); if(_xp) wolfSSL_Free(_xp);})
+    #ifdef WOLFSSL_XFREE_NO_NULLNESS_CHECK
+        #define XFREE(p, h, t)       ({(void)(h); (void)(t); wolfSSL_Free(p);})
+    #else
+        #define XFREE(p, h, t)       ({void* _xp; (void)(h); _xp = (p); if(_xp) wolfSSL_Free(_xp);})
+    #endif
     #define XREALLOC(p, n, h, t) ({(void)(h); (void)(t); wolfSSL_Realloc(p, n);})
 #else
     #define XMALLOC(s, h, t)     ({(void)(h); (void)(t); malloc(s);})
-    #define XFREE(p, h, t)       ({void* _xp; (void)(h); _xp = (p); if(_xp) free(_xp);})
+    #ifdef WOLFSSL_XFREE_NO_NULLNESS_CHECK
+        #define XFREE(p, h, t)       ({(void)(h); (void)(t); free(p);})
+    #else
+        #define XFREE(p, h, t)       ({void* _xp; (void)(h); (void)(t); _xp = (p); if(_xp) free(_xp);})
+    #endif
     #define XREALLOC(p, n, h, t) ({(void)(h); (void)(t); realloc(p, n);})
 #endif
 
