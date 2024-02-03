@@ -436,6 +436,16 @@
         #define WC_NO_CACHE_RESISTANT
     #endif /* !WOLFSSL_ESPIDF_NO_DEFAULT */
 
+    #if defined(NO_WOLFSSL_ESP32_CRYPT_HASH_SHA384) && \
+       !defined(NO_WOLFSSL_ESP32_CRYPT_HASH_SHA512)
+        #error "NO_WOLFSSL_ESP32_CRYPT_HASH_SHA384 cannot be defined without" \
+               "NO_WOLFSSL_ESP32_CRYPT_HASH_SHA512 (enable or disable both)"
+    #endif
+    #if defined(NO_WOLFSSL_ESP32_CRYPT_HASH_SHA512) && \
+       !defined(NO_WOLFSSL_ESP32_CRYPT_HASH_SHA384)
+        #error "NO_WOLFSSL_ESP32_CRYPT_HASH_SHA512 cannot be defined without" \
+               "NO_WOLFSSL_ESP32_CRYPT_HASH_SHA384 (enable or disable both)"
+    #endif
 #if defined(WOLFSSL_ESPWROOM32)
     /* WOLFSSL_ESPWROOM32 is a legacy macro gate.
     ** Not be be confused with WOLFSSL_ESPWROOM32SE, naming a specific board */
@@ -2761,6 +2771,7 @@ extern void uITRON4_free(void *p) ;
     #ifndef WOLFSSL_TEST_SUBROUTINE
         #define WOLFSSL_TEST_SUBROUTINE static
     #endif
+    #undef HAVE_PTHREAD
     #undef HAVE_STRINGS_H
     #undef HAVE_ERRNO_H
     #undef HAVE_THREAD_LS
