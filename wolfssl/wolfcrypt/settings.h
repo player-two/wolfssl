@@ -348,6 +348,9 @@
 
 #undef OPENSSL_EXTRA
 #define OPENSSL_EXTRA
+
+#undef HAVE_OID_DECODING
+#define HAVE_OID_DECODING
 #endif /* WOLFSSL_DUAL_ALG_CERTS */
 
 /* ---------------------------------------------------------------------------
@@ -2735,6 +2738,14 @@ extern void uITRON4_free(void *p) ;
     #define WOLFSSL_IPV6
 #endif
 
+/* ---------------------------------------------------------------------------
+ * ASN Library Selection (default to ASN_TEMPLATE)
+ * ---------------------------------------------------------------------------
+ */
+#if !defined(WOLFSSL_ASN_TEMPLATE) && !defined(WOLFSSL_ASN_ORIGINAL) && \
+    !defined(NO_ASN)
+    #define WOLFSSL_ASN_TEMPLATE
+#endif
 
 #ifdef WOLFSSL_LINUXKM
     #ifdef HAVE_CONFIG_H
