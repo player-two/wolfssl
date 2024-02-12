@@ -213,6 +213,14 @@ ECC Curve Sizes:
     #include <wolfssl/wolfcrypt/hmac.h>
 #endif
 
+#if defined(WOLFSSL_LINUXKM) && !defined(WOLFSSL_SP_ASM)
+    /* force off unneeded vector register save/restore. */
+    #undef SAVE_VECTOR_REGISTERS
+    #define SAVE_VECTOR_REGISTERS(...) WC_DO_NOTHING
+    #undef RESTORE_VECTOR_REGISTERS
+    #define RESTORE_VECTOR_REGISTERS() WC_DO_NOTHING
+#endif
+
 #if defined(WOLFSSL_SP_MATH) || defined(WOLFSSL_SP_MATH_ALL)
     #define GEN_MEM_ERR MP_MEM
 #elif defined(USE_FAST_MATH)
@@ -3828,6 +3836,7 @@ int wc_ecc_mulmod_ex2(const mp_int* k, ecc_point* G, ecc_point* R, mp_int* a,
 #endif
    /* k can't have more bits than order */
    if (mp_count_bits(k) > mp_count_bits(order)) {
+      WOLFSSL_MSG("Private key length is greater than order in bits.");
       return ECC_OUT_OF_RANGE_E;
    }
 
@@ -5801,19 +5810,32 @@ static int _ecc_make_key_ex(WC_RNG* rng, int keysize, ecc_key* key,
         /* load curve info */
         if (err == MP_OKAY) {
             ALLOC_CURVE_SPECS(ECC_CURVE_FIELD_COUNT, err);
+            if (err != MP_OKAY) {
+                WOLFSSL_MSG("ALLOC_CURVE_SPECS failed");
+            }
         }
+
         if (err == MP_OKAY) {
             err = wc_ecc_curve_load(key->dp, &curve, ECC_CURVE_FIELD_ALL);
+            if (err != MP_OKAY) {
+                WOLFSSL_MSG("wc_ecc_curve_load failed");
+            }
         }
 
         /* generate k */
         if (err == MP_OKAY) {
             err = wc_ecc_gen_k(rng, key->dp->size, key->k, curve->order);
+            if (err != MP_OKAY) {
+                WOLFSSL_MSG("wc_ecc_gen_k failed");
+            }
         }
 
         /* generate public key from k */
         if (err == MP_OKAY) {
             err = ecc_make_pub_ex(key, curve, NULL, rng);
+            if (err != MP_OKAY) {
+                WOLFSSL_MSG("ecc_make_pub_ex failed");
+            }
         }
 
         if (err == MP_OKAY
