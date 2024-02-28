@@ -66,6 +66,8 @@
             #include <errno.h>
             #define LWIP_PROVIDE_ERRNO 1
         #endif
+    #elif defined(ARDUINO)
+        /* TODO Add specific boards */
     #elif defined(FREESCALE_MQX)
         #include <posix.h>
         #include <rtcs.h>
@@ -161,11 +163,15 @@
             #include <sys/socket.h>
             #include <arpa/inet.h>
             #include <netinet/in.h>
-            #include <netdb.h>
+            #ifdef HAVE_NETDB_H
+                #include <netdb.h>
+            #endif
             #ifdef __PPU
                 #include <netex/errno.h>
             #else
-                #include <sys/ioctl.h>
+                #ifdef HAVE_SYS_IOCTL_H
+                    #include <sys/ioctl.h>
+                #endif
             #endif
         #endif
     #endif
@@ -318,6 +324,12 @@
     #include <network.h>
     #define SEND_FUNCTION net_send
     #define RECV_FUNCTION net_recv
+#elif defined(WOLFSSL_ESPIDF)
+    #define SEND_FUNCTION send
+    #define RECV_FUNCTION recv
+    #if !defined(HAVE_SOCKADDR) && !defined(WOLFSSL_NO_SOCK)
+        #define HAVE_SOCKADDR
+    #endif
 #elif defined(WOLFSSL_LWIP) && !defined(WOLFSSL_APACHE_MYNEWT)
     #define SEND_FUNCTION lwip_send
     #define RECV_FUNCTION lwip_recv

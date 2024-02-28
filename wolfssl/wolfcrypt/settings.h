@@ -265,6 +265,32 @@
 /* Uncomment next line if using MAXQ108x */
 /* #define WOLFSSL_MAXQ108X */
 
+#if defined(ARDUINO)
+    /* we don't have the luxury of compiler options, so manually define */
+    #if defined(__arm__)
+        #undef  WOLFSSL_ARDUINO
+        #define WOLFSSL_ARDUINO
+    /* ESP32? */
+    #endif
+
+    #undef FREERTOS
+    #ifndef WOLFSSL_USER_SETTINGS
+        #define WOLFSSL_USER_SETTINGS
+    #endif /* WOLFSSL_USER_SETTINGS */
+
+    /* board-specific */
+    #if defined(__AVR__)
+        #define WOLFSSL_NO_SOCK
+        #define NO_WRITEV
+    #elif defined(__arm__)
+        #define WOLFSSL_NO_SOCK
+        #define NO_WRITEV
+    #elif defined(ESP32) || defined(ESP8266)
+        /* assume sockets available */
+    #else
+        #define WOLFSSL_NO_SOCK
+    #endif
+#endif
 
 #ifdef WOLFSSL_USER_SETTINGS
     #include "user_settings.h"
@@ -353,50 +379,6 @@
 #define HAVE_OID_DECODING
 #endif /* WOLFSSL_DUAL_ALG_CERTS */
 
-/* ---------------------------------------------------------------------------
- * OpenSSL compat layer
- * ---------------------------------------------------------------------------
- */
-#if defined(OPENSSL_EXTRA) && !defined(OPENSSL_COEXIST)
-#undef  WOLFSSL_ALWAYS_VERIFY_CB
-#define WOLFSSL_ALWAYS_VERIFY_CB
-
-#undef WOLFSSL_VERIFY_CB_ALL_CERTS
-#define WOLFSSL_VERIFY_CB_ALL_CERTS
-
-#undef WOLFSSL_EXTRA_ALERTS
-#define WOLFSSL_EXTRA_ALERTS
-
-#undef HAVE_EXT_CACHE
-#define HAVE_EXT_CACHE
-
-#undef WOLFSSL_FORCE_CACHE_ON_TICKET
-#define WOLFSSL_FORCE_CACHE_ON_TICKET
-
-#undef WOLFSSL_AKID_NAME
-#define WOLFSSL_AKID_NAME
-
-#undef HAVE_CTS
-#define HAVE_CTS
-
-#undef WOLFSSL_SESSION_ID_CTX
-#define WOLFSSL_SESSION_ID_CTX
-#endif /* OPENSSL_EXTRA && !OPENSSL_COEXIST */
-
-/* ---------------------------------------------------------------------------
- * Special small OpenSSL compat layer for certs
- * ---------------------------------------------------------------------------
- */
-#ifdef OPENSSL_EXTRA_X509_SMALL
-#undef WOLFSSL_EKU_OID
-#define WOLFSSL_EKU_OID
-
-#undef WOLFSSL_MULTI_ATTRIB
-#define WOLFSSL_MULTI_ATTRIB
-
-#undef WOLFSSL_NO_OPENSSL_RAND_CB
-#define WOLFSSL_NO_OPENSSL_RAND_CB
-#endif /* OPENSSL_EXTRA_X509_SMALL */
 
 #if defined(_WIN32) && !defined(_M_X64) && \
     defined(HAVE_AESGCM) && defined(WOLFSSL_AESNI)
@@ -422,6 +404,33 @@
         #include <types.h>
     #endif
     #include <nx_api.h>
+#endif
+
+#if defined(ARDUINO)
+    #if defined(ESP32)
+        #ifndef NO_ARDUINO_DEFAULT
+            #define SIZEOF_LONG_LONG 8
+            #ifdef FREERTOS
+                #undef FREERTOS
+            #endif
+
+            #define WOLFSSL_LWIP
+            #define NO_WRITEV
+            #define NO_WOLFSSL_DIR
+            #define WOLFSSL_NO_CURRDIR
+
+            #define TFM_TIMING_RESISTANT
+            #define ECC_TIMING_RESISTANT
+            #define WC_RSA_BLINDING
+            #define WC_NO_CACHE_RESISTANT
+        #endif /* !NO_ARDUINO_DEFAULT */
+    #elif defined(__arm__)
+            #define NO_WRITEV
+            #define NO_WOLFSSL_DIR
+            #define WOLFSSL_NO_CURRDIR
+    #elif defined(OTHERBOARD)
+        /* TODO: define other Arduino boards here */
+    #endif
 #endif
 
 #if defined(WOLFSSL_ESPIDF)
@@ -754,11 +763,20 @@
 
 
 #ifdef WOLFSSL_ARDUINO
+    /* Define WOLFSSL_USER_IO here to avoid check in internal.c */
+    #define WOLFSSL_USER_IO
+
     #define NO_WRITEV
     #define NO_WOLFSSL_DIR
     #define SINGLE_THREADED
     #define NO_DEV_RANDOM
-    #ifndef INTEL_GALILEO /* Galileo has time.h compatibility */
+    #if defined(INTEL_GALILEO) || defined(ESP32)
+        /* boards with has time.h compatibility */
+    #elif defined(__arm__)
+        /* TODO is time really missing from Arduino Due? */
+        /* This is a brute-force solution to make it work: */
+        #define NO_ASN_TIME
+    #else
         #define TIME_OVERRIDES
         #ifndef XTIME
             #error "Must define XTIME externally see porting guide"
@@ -2105,9 +2123,17 @@ extern void uITRON4_free(void *p) ;
     #include "RTOS.h"
     #if !defined(XMALLOC_USER) && !defined(NO_WOLFSSL_MEMORY) && \
         !defined(WOLFSSL_STATIC_MEMORY)
-        #define XMALLOC(s, h, type)  ((void)(h), (void)(type), OS_HEAP_malloc((s)))
-        #define XFREE(p, h, type)    ((void)(h), (void)(type), OS_HEAP_free((p)))
-        #define XREALLOC(p, n, h, t) ((void)(h), (void)(t), OS_HEAP_realloc(((p), (n)))
+        /* Per the user manual of embOS https://www.segger.com/downloads/embos/UM01001
+         * this API has changed with V5. */
+        #if (OS_VERSION >= 50000U)
+            #define XMALLOC(s, h, type)  ((void)(h), (void)(type), OS_HEAP_malloc((s)))
+            #define XFREE(p, h, type)    ((void)(h), (void)(type), OS_HEAP_free((p)))
+            #define XREALLOC(p, n, h, t) ((void)(h), (void)(t), OS_HEAP_realloc((p), (n)))
+        #else
+            #define XMALLOC(s, h, type)  ((void)(h), (void)(type), OS_malloc((s)))
+            #define XFREE(p, h, type)    ((void)(h), (void)(type), OS_free((p)))
+            #define XREALLOC(p, n, h, t) ((void)(h), (void)(t), OS_realloc((p), (n)))
+        #endif
     #endif
 #endif
 
@@ -2836,6 +2862,51 @@ extern void uITRON4_free(void *p) ;
     #define OPENSSL_EXTRA
 #endif
 
+/* ---------------------------------------------------------------------------
+ * OpenSSL compat layer
+ * ---------------------------------------------------------------------------
+ */
+#if defined(OPENSSL_EXTRA) && !defined(OPENSSL_COEXIST)
+    #undef  WOLFSSL_ALWAYS_VERIFY_CB
+    #define WOLFSSL_ALWAYS_VERIFY_CB
+
+    #undef WOLFSSL_VERIFY_CB_ALL_CERTS
+    #define WOLFSSL_VERIFY_CB_ALL_CERTS
+
+    #undef WOLFSSL_EXTRA_ALERTS
+    #define WOLFSSL_EXTRA_ALERTS
+
+    #undef HAVE_EXT_CACHE
+    #define HAVE_EXT_CACHE
+
+    #undef WOLFSSL_FORCE_CACHE_ON_TICKET
+    #define WOLFSSL_FORCE_CACHE_ON_TICKET
+
+    #undef WOLFSSL_AKID_NAME
+    #define WOLFSSL_AKID_NAME
+
+    #undef HAVE_CTS
+    #define HAVE_CTS
+
+    #undef WOLFSSL_SESSION_ID_CTX
+    #define WOLFSSL_SESSION_ID_CTX
+#endif /* OPENSSL_EXTRA && !OPENSSL_COEXIST */
+
+/* ---------------------------------------------------------------------------
+ * Special small OpenSSL compat layer for certs
+ * ---------------------------------------------------------------------------
+ */
+#ifdef OPENSSL_EXTRA_X509_SMALL
+    #undef WOLFSSL_EKU_OID
+    #define WOLFSSL_EKU_OID
+
+    #undef WOLFSSL_MULTI_ATTRIB
+    #define WOLFSSL_MULTI_ATTRIB
+
+    #undef WOLFSSL_NO_OPENSSL_RAND_CB
+    #define WOLFSSL_NO_OPENSSL_RAND_CB
+#endif /* OPENSSL_EXTRA_X509_SMALL */
+
 #ifdef HAVE_SNI
     #define SSL_CTRL_SET_TLSEXT_HOSTNAME 55
 #endif
@@ -3340,6 +3411,11 @@ extern void uITRON4_free(void *p) ;
         #error "RFC9325 requires some additional alerts to be sent"
     #endif
     /* Ciphersuite check done in internal.h */
+#endif
+
+/* Some final sanity checks */
+#if defined(WOLFSSL_ESPIDF) && defined(ARDUINO)
+    #error "Found both ESPIDF and ARDUINO. Pick one."
 #endif
 
 

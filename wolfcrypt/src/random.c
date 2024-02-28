@@ -1770,6 +1770,26 @@ WC_RNG* wc_rng_new(byte* nonce, word32 nonceSz, void* heap)
 }
 
 
+int wc_rng_new_ex(WC_RNG **rng, byte* nonce, word32 nonceSz,
+                  void* heap, int devId)
+{
+    int ret;
+
+    *rng = (WC_RNG*)XMALLOC(sizeof(WC_RNG), heap, DYNAMIC_TYPE_RNG);
+    if (*rng == NULL) {
+        return MEMORY_E;
+    }
+
+    ret = _InitRng(*rng, nonce, nonceSz, heap, devId);
+    if (ret != 0) {
+        XFREE(*rng, heap, DYNAMIC_TYPE_RNG);
+        *rng = NULL;
+    }
+
+    return ret;
+}
+
+
 WOLFSSL_ABI
 void wc_rng_free(WC_RNG* rng)
 {
@@ -3434,6 +3454,73 @@ int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
         return 0;
     }
 
+#elif defined(ARDUINO)
+
+    int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
+    {
+        int ret = 0;
+        word32 rand;
+        while (sz > 0) {
+            word32 len = sizeof(rand);
+            if (sz < len)
+                len = sz;
+        /* Get an Arduino framework random number */
+        #if defined(__arm__)
+            /* See: https://github.com/avrxml/asf/tree/master/sam/utils/cmsis/sam3x/include */
+            #if defined(__SAM3A4C__)
+                #ifndef TRNG
+                    #define TRNG (0x400BC000U)
+                #endif
+            #elif defined(__SAM3A8C__)
+                #ifndef TRNG
+                    #define TRNG (0x400BC000U)
+                #endif
+            #elif defined(__SAM3X4C__)
+                #ifndef TRNG
+                    #define TRNG (0x400BC000U)
+                #endif
+            #elif defined(__SAM3X4E__)
+                #ifndef TRNG
+                    #define TRNG (0x400BC000U)
+                #endif
+            #elif defined(__SAM3X8C__)
+                #ifndef TRNG
+                    #define TRNG (0x400BC000U)
+                #endif
+            #elif defined(__SAM3X8E__)
+                /* This is the Arduino Due */
+                #ifndef TRNG
+                    #define TRNG (0x400BC000U)
+                #endif
+            #elif  defined(__SAM3A8H__)
+                #ifndef TRNG
+                    #define TRNG (0x400BC000U)
+                #endif
+            #else
+                #ifndef TRNG
+                    #error "Unknown TRNG for this device"
+                #endif
+            #endif
+
+            srand(analogRead(0));
+            rand = trng_read_output_data(TRNG);
+        #elif defined(__STM32__)
+            /* TODO: confirm this is proper random number on Arduino STM32 */
+            #warning "Not yet tested on STM32 targets"
+            rand = random();
+        #else
+            /* TODO: Pull requests appreciated for new targets */
+            #warning "Not yet tested on this target"
+            rand = random();
+        #endif
+            XMEMCPY(output, &rand, len);
+            output += len;
+            sz -= len;
+        }
+
+        return ret;
+    }
+
 #elif defined(WOLFSSL_ESPIDF)
 
     /* Espressif */
@@ -3655,7 +3742,14 @@ int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
                 output[i] = (byte)rand();
             return 0;
         }
+#elif defined(WOLFSSL_MAXQ108X) || defined(WOLFSSL_MAXQ1065)
 
+    int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
+    {
+        (void)os;
+
+        return maxq10xx_random(output, sz);
+    }
 #elif defined(WOLFSSL_GETRANDOM)
 
     /* getrandom() was added to the Linux kernel in version 3.17.
@@ -3703,6 +3797,28 @@ int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
 
 #elif defined(NO_DEV_RANDOM)
 
+    /* Allow bare-metal targets to use cryptoCb as seed provider */
+    #if defined(WOLF_CRYPTO_CB)
+
+    int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
+    {
+        int ret = WC_HW_E;
+
+        #ifndef WOLF_CRYPTO_CB_FIND
+        if (os->devId != INVALID_DEVID)
+        #endif
+        {
+            ret = wc_CryptoCb_RandomSeed(os, output, sz);
+            if (ret == CRYPTOCB_UNAVAILABLE) {
+                ret = WC_HW_E;
+            }
+        }
+
+        return ret;
+    }
+
+    #else /* defined(WOLF_CRYPTO_CB)*/
+
     #error "you need to write an os specific wc_GenerateSeed() here"
 
     /*
@@ -3711,6 +3827,8 @@ int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
         return 0;
     }
     */
+
+   #endif  /* !defined(WOLF_CRYPTO_CB) */
 
 #else
 
