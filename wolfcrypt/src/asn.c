@@ -1065,6 +1065,16 @@ static int GetASN_Integer(const byte* input, word32 idx, int length,
         #endif
         }
     }
+    /* check for invalid padding on negative integer.
+     * c.f. X.690 (ISO/IEC 8825-2:2003 (E)) 10.4.6; RFC 5280 4.1
+     */
+    else if ((length > 1) && (input[idx] == 0xff) &&
+             ((input[idx + 1] & 0x80) != 0)) {
+        WOLFSSL_MSG("Bad INTEGER encoding of negative");
+    #ifndef WOLFSSL_ASN_INT_LEAD_0_ANY
+        return ASN_EXPECT_0_E;
+    #endif /* WOLFSSL_ASN_INT_LEAD_0_ANY */
+    }
     /* Check whether a leading zero byte was required. */
     else if (positive && (input[idx] & 0x80)) {
         WOLFSSL_MSG("INTEGER is negative");
@@ -1128,9 +1138,9 @@ static int GetASN_BitString(const byte* input, word32 idx, int length)
 static int GetASN_UTF8String(const byte* input, word32 idx, int length)
 {
     int ret = 0;
-    int i = 0;
+    word32 i = 0;
 
-    while ((ret == 0) && (i < length)) {
+    while ((ret == 0) && ((int)i < length)) {
         int cnt;
 
         /* Check code points and get count of following bytes. */
@@ -1157,7 +1167,7 @@ static int GetASN_UTF8String(const byte* input, word32 idx, int length)
         /* Check each following byte. */
         for (; cnt > 0; cnt--) {
             /* Check we have enough data. */
-            if (i == length) {
+            if ((int)i == length) {
                 WOLFSSL_MSG("Missing character in UTF8STRING\n");
                 ret = ASN_PARSE_E;
                 break;
@@ -1202,7 +1212,7 @@ static int GetASN_ObjectId(const byte* input, word32 idx, int length)
     /* Last octet of a subidentifier has bit 8 clear. Last octet must be last
      * of a subidentifier. Ensure last octet hasn't got top bit set indicating.
      */
-    else if ((input[idx + length - 1] & 0x80) != 0x00) {
+    else if ((input[(int)idx + length - 1] & 0x80) != 0x00) {
         WOLFSSL_MSG("OID last octet has top bit set");
         ret = ASN_PARSE_E;
     }
@@ -12764,6 +12774,17 @@ static int GetHashId(const byte* id, int length, byte* hash, int hashAlg)
     (((id) - 3) >= 0 && ((id) - 3) < certNameSubjectSz && \
             (certNameSubject[(id) - 3].strLen > 0))
 
+/* Set the string for a name component into the issuer name. */
+#define SetCertNameIssuer(cert, id, val) \
+    *((char**)(((byte *)(cert)) + certNameSubject[(id) - 3].dataI)) = (val)
+/* Set the string length for a name component into the issuer name. */
+#define SetCertNameIssuerLen(cert, id, val) \
+    *((int*)(((byte *)(cert)) + certNameSubject[(id) - 3].lenI)) = (int)(val)
+/* Set the encoding for a name component into the issuer name. */
+#define SetCertNameIssuerEnc(cert, id, val) \
+    *((byte*)(((byte *)(cert)) + certNameSubject[(id) - 3].encI)) = (val)
+
+
 /* Mapping of certificate name component to useful information. */
 typedef struct CertNameData {
     /* Type string of name component. */
@@ -12777,6 +12798,14 @@ typedef struct CertNameData {
     size_t      len;
     /* Offset of encoding in subject name component. */
     size_t      enc;
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+    /* Offset of data in subject name component. */
+    size_t      dataI;
+    /* Offset of length in subject name component. */
+    size_t      lenI;
+    /* Offset of encoding in subject name component. */
+    size_t      encI;
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
     /* NID of type for subject name component. */
@@ -12793,6 +12822,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectCN),
         OFFSETOF(DecodedCert, subjectCNLen),
         OFFSETOF(DecodedCert, subjectCNEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerCN),
+        OFFSETOF(DecodedCert, issuerCNLen),
+        OFFSETOF(DecodedCert, issuerCNEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_commonName
@@ -12805,6 +12839,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectSN),
         OFFSETOF(DecodedCert, subjectSNLen),
         OFFSETOF(DecodedCert, subjectSNEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerSN),
+        OFFSETOF(DecodedCert, issuerSNLen),
+        OFFSETOF(DecodedCert, issuerSNEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_surname
@@ -12817,6 +12856,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectSND),
         OFFSETOF(DecodedCert, subjectSNDLen),
         OFFSETOF(DecodedCert, subjectSNDEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerSND),
+        OFFSETOF(DecodedCert, issuerSNDLen),
+        OFFSETOF(DecodedCert, issuerSNDEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_serialNumber
@@ -12829,6 +12873,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectC),
         OFFSETOF(DecodedCert, subjectCLen),
         OFFSETOF(DecodedCert, subjectCEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerC),
+        OFFSETOF(DecodedCert, issuerCLen),
+        OFFSETOF(DecodedCert, issuerCEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_countryName
@@ -12841,6 +12890,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectL),
         OFFSETOF(DecodedCert, subjectLLen),
         OFFSETOF(DecodedCert, subjectLEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerL),
+        OFFSETOF(DecodedCert, issuerLLen),
+        OFFSETOF(DecodedCert, issuerLEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_localityName
@@ -12853,6 +12907,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectST),
         OFFSETOF(DecodedCert, subjectSTLen),
         OFFSETOF(DecodedCert, subjectSTEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerST),
+        OFFSETOF(DecodedCert, issuerSTLen),
+        OFFSETOF(DecodedCert, issuerSTEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_stateOrProvinceName
@@ -12865,6 +12924,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectStreet),
         OFFSETOF(DecodedCert, subjectStreetLen),
         OFFSETOF(DecodedCert, subjectStreetEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_streetAddress
@@ -12877,6 +12941,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectO),
         OFFSETOF(DecodedCert, subjectOLen),
         OFFSETOF(DecodedCert, subjectOEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerO),
+        OFFSETOF(DecodedCert, issuerOLen),
+        OFFSETOF(DecodedCert, issuerOEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_organizationName
@@ -12889,6 +12958,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectOU),
         OFFSETOF(DecodedCert, subjectOULen),
         OFFSETOF(DecodedCert, subjectOUEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        OFFSETOF(DecodedCert, issuerOU),
+        OFFSETOF(DecodedCert, issuerOULen),
+        OFFSETOF(DecodedCert, issuerOUEnc),
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_organizationalUnitName
@@ -12901,6 +12975,11 @@ static const CertNameData certNameSubject[] = {
         0,
         0,
         0,
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         0,
@@ -12913,6 +12992,11 @@ static const CertNameData certNameSubject[] = {
         0,
         0,
         0,
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         0,
@@ -12925,6 +13009,11 @@ static const CertNameData certNameSubject[] = {
         0,
         0,
         0,
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         0,
@@ -12937,6 +13026,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectBC),
         OFFSETOF(DecodedCert, subjectBCLen),
         OFFSETOF(DecodedCert, subjectBCEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_businessCategory
@@ -12949,6 +13043,11 @@ static const CertNameData certNameSubject[] = {
         0,
         0,
         0,
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         0,
@@ -12961,6 +13060,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectPC),
         OFFSETOF(DecodedCert, subjectPCLen),
         OFFSETOF(DecodedCert, subjectPCEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_postalCode
@@ -12973,6 +13077,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectUID),
         OFFSETOF(DecodedCert, subjectUIDLen),
         OFFSETOF(DecodedCert, subjectUIDEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
 #endif
 #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_userId
@@ -12986,6 +13095,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectN),
         OFFSETOF(DecodedCert, subjectNLen),
         OFFSETOF(DecodedCert, subjectNEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
     #endif
     #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_name
@@ -12998,6 +13112,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectGN),
         OFFSETOF(DecodedCert, subjectGNLen),
         OFFSETOF(DecodedCert, subjectGNEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
     #endif
     #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_givenName
@@ -13010,6 +13129,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectI),
         OFFSETOF(DecodedCert, subjectILen),
         OFFSETOF(DecodedCert, subjectIEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
     #endif
     #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_initials
@@ -13022,6 +13146,11 @@ static const CertNameData certNameSubject[] = {
         OFFSETOF(DecodedCert, subjectDNQ),
         OFFSETOF(DecodedCert, subjectDNQLen),
         OFFSETOF(DecodedCert, subjectDNQEnc),
+#ifdef WOLFSSL_HAVE_ISSUER_NAMES
+        0,
+        0,
+        0,
+#endif
     #endif
     #ifdef WOLFSSL_X509_NAME_AVAILABLE
         NID_dnQualifier
@@ -13032,6 +13161,7 @@ static const CertNameData certNameSubject[] = {
 
 static const int certNameSubjectSz =
         (int) (sizeof(certNameSubject) / sizeof(CertNameData));
+
 
 /* ASN.1 template for an RDN.
  * X.509: RFC 5280, 4.1.2.4 - RelativeDistinguishedName
@@ -13373,6 +13503,43 @@ static int SetSubject(DecodedCert* cert, int id, byte* str, int strLen,
     return ret;
 }
 
+#if (defined(WOLFSSL_CERT_GEN) || defined(WOLFSSL_CERT_EXT)) && \
+    defined(WOLFSSL_HAVE_ISSUER_NAMES)
+/* Set the details of an issuer name component into a certificate.
+ *
+ * @param [in, out] cert    Certificate object.
+ * @param [in]      id      Id of component.
+ * @param [in]      str     String for component.
+ * @param [in]      strLen  Length of string.
+ * @param [in]      tag     BER tag representing encoding of string.
+ * @return  0 on success, negative values on failure.
+ */
+static int SetIssuer(DecodedCert* cert, int id, byte* str, int strLen,
+                      byte tag)
+{
+    int ret = 0;
+
+    /* Put string and encoding into certificate. */
+    if (id == ASN_COMMON_NAME) {
+        cert->issuerCN = (char *)str;
+        cert->issuerCNLen = (int)strLen;
+        cert->issuerCNEnc = (char)tag;
+    }
+    else if (id > ASN_COMMON_NAME && id <= ASN_USER_ID) {
+        /* Use table and offsets to put data into appropriate fields. */
+        SetCertNameIssuer(cert, id, (char*)str);
+        SetCertNameIssuerLen(cert, id, strLen);
+        SetCertNameIssuerEnc(cert, id, tag);
+    }
+    else if (id == ASN_EMAIL) {
+        cert->issuerEmail = (char*)str;
+        cert->issuerEmailLen = strLen;
+    }
+
+    return ret;
+}
+#endif
+
 /* Get a RelativeDistinguishedName from the encoding and put in certificate.
  *
  * @param [in, out] cert       Certificate object.
@@ -13505,6 +13672,13 @@ static int GetRDN(DecodedCert* cert, char* full, word32* idx, int* nid,
             /* Store subject field components. */
             ret = SetSubject(cert, id, str, (int)strLen, tag);
         }
+    #if (defined(WOLFSSL_CERT_GEN) || defined(WOLFSSL_CERT_EXT)) && \
+        defined(WOLFSSL_HAVE_ISSUER_NAMES)
+        /* Put issuer common name string and encoding into certificate. */
+        else {
+            ret = SetIssuer(cert, id, str, (int)strLen, tag);
+        }
+    #endif
         if (ret == 0) {
             /* Check there is space for this in the full name string and
              * terminating NUL character. */
@@ -14845,7 +15019,7 @@ int wc_ValidateDate(const byte* date, byte format, int dateType)
 
     ltime = wc_Time(0);
 #ifndef NO_TIME_SIGNEDNESS_CHECK
-    if (sizeof(ltime) == sizeof(word32) && (int)ltime < 0){
+    if (sizeof(ltime) == sizeof(word32) && (sword32)ltime < 0){
         /* A negative response here could be due to a 32-bit time_t
          * where the year is 2038 or later. */
         WOLFSSL_MSG("wc_Time failed to return a valid value");
@@ -36468,7 +36642,7 @@ word32 EncodeOcspRequestExtensions(OcspRequest* req, byte* output, word32 size)
 
         CALLOC_ASNSETDATA(dataASN, ocspNonceExtASN_Length, ret, req->heap);
 
-        if ((ret == 0) && (output != NULL)) {
+        if (ret == 0) {
             /* Set nonce extension OID and nonce. */
             SetASN_Buffer(&dataASN[OCSPNONCEEXTASN_IDX_EXT_OID], NonceObjId,
                     sizeof(NonceObjId));

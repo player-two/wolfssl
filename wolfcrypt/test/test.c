@@ -16134,8 +16134,7 @@ WOLFSSL_TEST_SUBROUTINE wc_test_ret_t memory_test(void)
             #ifdef WOLFSSL_CERT_GEN
             static const char* rsaCaCertFile = CERT_ROOT "ca-cert.pem";
             #endif
-            #if (defined(WOLFSSL_ALT_NAMES) || defined(HAVE_PKCS7)) \
-                && !defined(NO_ASN_TIME)
+            #if defined(WOLFSSL_ALT_NAMES) || defined(HAVE_PKCS7)
             static const char* rsaCaCertDerFile = CERT_ROOT "ca-cert.der";
             #endif
             #ifdef HAVE_PKCS7
@@ -44892,7 +44891,7 @@ static wc_test_ret_t pkcs7signed_run_SingleShotVectors(
 
             /* encode Signed Encrypted Compressed FirmwarePkgData */
             encodedSz = wc_PKCS7_EncodeSignedEncryptedCompressedFPD(pkcs7,
-                    testVectors[i].encryptKey, testVectors[i].encryptKeySz,
+                    (byte*)testVectors[i].encryptKey, testVectors[i].encryptKeySz,
                     testVectors[i].privateKey, testVectors[i].privateKeySz,
                     testVectors[i].encryptOID, testVectors[i].signOID,
                     testVectors[i].hashOID, (byte*)testVectors[i].content,
@@ -45001,7 +45000,7 @@ static wc_test_ret_t pkcs7signed_run_SingleShotVectors(
             XMEMSET(encryptedTmp, 0, encryptedTmpSz);
 
             /* decrypt inner encryptedData */
-            pkcs7->encryptionKey = testVectors[i].encryptKey;
+            pkcs7->encryptionKey = (byte*)testVectors[i].encryptKey;
             pkcs7->encryptionKeySz = testVectors[i].encryptKeySz;
 
             encryptedTmpSz = wc_PKCS7_DecodeEncryptedData(pkcs7, pkcs7->content,
