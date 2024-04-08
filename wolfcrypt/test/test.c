@@ -1,6 +1,6 @@
 /* test.c
  *
- * Copyright (C) 2006-2023 wolfSSL Inc.
+ * Copyright (C) 2006-2024 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -1871,9 +1871,9 @@ options: [-s max_relative_stack_bytes] [-m max_relative_heap_memory_bytes]\n\
 
 #if !defined(NO_ASN) && !defined(NO_ASN_TIME)
     if ( (ret = time_test()) != 0)
-        TEST_FAIL("time test failed!\n", ret);
+        TEST_FAIL("time     test failed!\n", ret);
     else
-        TEST_PASS("time test passed!\n");
+        TEST_PASS("time     test passed!\n");
 #endif
 
 #if defined(__INCLUDE_NUTTX_CONFIG_H)
@@ -2125,7 +2125,11 @@ static wc_test_ret_t _SaveDerAndPem(const byte* der, int derSz,
     #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
         XFILE pemFile;
     #endif
+    #ifndef WOLFSSL_NO_MALLOC
         byte* pem;
+    #else
+        byte pem[1024];
+    #endif
         int pemSz;
 
         /* calculate PEM size */
@@ -2133,10 +2137,15 @@ static wc_test_ret_t _SaveDerAndPem(const byte* der, int derSz,
         if (pemSz < 0) {
             return WC_TEST_RET_ENC(calling_line, 2, WC_TEST_RET_TAG_I);
         }
+    #ifndef WOLFSSL_NO_MALLOC
         pem = (byte*)XMALLOC(pemSz, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
         if (pem == NULL) {
             return WC_TEST_RET_ENC(calling_line, 3, WC_TEST_RET_TAG_I);
         }
+    #else
+        if (pemSz > (int)sizeof(pem))
+            return BAD_FUNC_ARG;
+    #endif
         /* Convert to PEM */
         pemSz = wc_DerToPem(der, derSz, pem, pemSz, pemType);
         if (pemSz < 0) {
@@ -2438,8 +2447,10 @@ WOLFSSL_TEST_SUBROUTINE wc_test_ret_t asn_test(void)
 {
     wc_test_ret_t ret;
     /* ASN1 encoded date buffer */
-    WOLFSSL_SMALL_STACK_STATIC const byte dateBuf[] = {0x17, 0x0d, 0x31, 0x36, 0x30, 0x38, 0x31, 0x31,
-                            0x32, 0x30, 0x30, 0x37, 0x33, 0x37, 0x5a};
+    WOLFSSL_SMALL_STACK_STATIC const byte dateBuf[] = {
+        0x17, 0x0d, 0x31, 0x36, 0x30, 0x38, 0x31, 0x31,
+        0x32, 0x30, 0x30, 0x37, 0x33, 0x37, 0x5a
+    };
     byte format;
     int length;
     const byte* datePart;
@@ -16220,6 +16231,16 @@ WOLFSSL_TEST_SUBROUTINE wc_test_ret_t memory_test(void)
             CERT_ROOT "test" CERT_PATH_SEP "cert-ext-ia.der";
     static const char* certExtNct =
             CERT_ROOT "test" CERT_PATH_SEP "cert-ext-nct.der";
+#ifndef WOLFSSL_ASN_INT_LEAD_0_ANY
+    static const char* certBadNegInt =
+            CERT_ROOT "test" CERT_PATH_SEP "cert-bad-neg-int.der";
+#endif
+    static const char* certBadOid =
+            CERT_ROOT "test" CERT_PATH_SEP "cert-bad-oid.der";
+#ifndef WOLFSSL_NO_ASN_STRICT
+    static const char* certBadUtf8 =
+            CERT_ROOT "test" CERT_PATH_SEP "cert-bad-utf8.der";
+#endif
 #endif
 
 #ifndef NO_WRITE_TEMP_FILES
@@ -16469,6 +16490,71 @@ done:
     return ret;
 }
 
+static wc_test_ret_t cert_load_bad(const char* fname, byte* tmp, int err)
+{
+    wc_test_ret_t ret;
+    DecodedCert   cert;
+    XFILE         file;
+    size_t        bytes;
+
+    if ((fname == NULL) || (tmp == NULL)) {
+        ERROR_OUT(WC_TEST_RET_ENC_NC, done);
+    }
+    file = XFOPEN(fname, "rb");
+    if (!file) {
+        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, done);
+    }
+    bytes = XFREAD(tmp, 1, FOURK_BUF, file);
+    XFCLOSE(file);
+    if (bytes == 0) {
+        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, done);
+    }
+    InitDecodedCert(&cert, tmp, (word32)bytes, 0);
+    ret = ParseCert(&cert, CERT_TYPE, NO_VERIFY, NULL);
+    FreeDecodedCert(&cert);
+    if (ret != err) {
+        ERROR_OUT(WC_TEST_RET_ENC_EC(ret), done);
+    }
+    ret = 0;
+
+done:
+    return ret;
+}
+
+static wc_test_ret_t cert_bad_asn1_test(void)
+{
+    wc_test_ret_t ret = 0;
+    byte*       tmp;
+
+    tmp = (byte*)XMALLOC(FOURK_BUF, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
+    if (tmp == NULL) {
+        ret = WC_TEST_RET_ENC_ERRNO;
+    }
+
+#ifndef WOLFSSL_ASN_INT_LEAD_0_ANY
+    if (ret == 0) {
+        /* Serial number: 0xff 0xa8. 0xff and top bit set on next byte invalid.
+         */
+        ret = cert_load_bad(certBadNegInt, tmp, ASN_EXPECT_0_E);
+    }
+#endif
+    if (ret == 0) {
+        /* Subject name OID: 55 04 f4. Last byte with top bit set invalid. */
+        ret = cert_load_bad(certBadOid, tmp, ASN_PARSE_E);
+    }
+#ifndef WOLFSSL_NO_ASN_STRICT
+    if (ret == 0) {
+        /* Issuer name UTF8STRING: df 52 4e 44. Top bit of second byte not set.
+         */
+        ret = cert_load_bad(certBadUtf8, tmp, ASN_PARSE_E);
+    }
+#endif
+
+    XFREE(tmp, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
+
+    return ret;
+}
+
 WOLFSSL_TEST_SUBROUTINE wc_test_ret_t cert_test(void)
 {
 #if !defined(NO_FILESYSTEM)
@@ -16542,6 +16628,8 @@ done:
 
     if (ret == 0)
         ret = cert_asn1_test();
+    if (ret == 0)
+        ret = cert_bad_asn1_test();
 
     return ret;
 }
@@ -18697,7 +18785,9 @@ static wc_test_ret_t rsa_ecc_certgen_test(WC_RNG* rng, byte* tmp)
     word32      idx3 = 0;
 #if (!defined(USE_CERT_BUFFERS_1024) && !defined(USE_CERT_BUFFERS_2048)) \
     || !defined(USE_CERT_BUFFERS_256)
-    XFILE       file3;
+    #ifndef NO_FILESYSTEM
+        XFILE       file3;
+    #endif
 #endif
     wc_test_ret_t ret;
 
@@ -18750,20 +18840,29 @@ static wc_test_ret_t rsa_ecc_certgen_test(WC_RNG* rng, byte* tmp)
         ERROR_OUT(WC_TEST_RET_ENC_EC(ret), exit_rsa);
 
     /* Get Cert Key */
-#ifdef USE_CERT_BUFFERS_256
-    XMEMCPY(tmp, ecc_key_pub_der_256, sizeof_ecc_key_pub_der_256);
-    bytes3 = sizeof_ecc_key_pub_der_256;
-#else
-    file3 = XFOPEN(eccKeyPubFileDer, "rb");
-    if (!file3) {
-        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit_rsa);
+    #if defined(USE_CERT_BUFFERS_256)
+    {
+        XMEMCPY(tmp, ecc_key_pub_der_256, sizeof_ecc_key_pub_der_256);
+        bytes3 = sizeof_ecc_key_pub_der_256;
     }
+    #elif !defined(NO_FILESYSTEM)
+    {
+        file3 = XFOPEN(eccKeyPubFileDer, "rb");
+        if (!file3) {
+            ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit_rsa);
+        }
 
-    bytes3 = XFREAD(tmp, 1, FOURK_BUF, file3);
-    XFCLOSE(file3);
-    if (bytes3 == 0)
-        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit_rsa);
-#endif
+        bytes3 = XFREAD(tmp, 1, FOURK_BUF, file3);
+        XFCLOSE(file3);
+        if (bytes3 == 0)
+            ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit_rsa);
+    }
+    #else
+    {
+        WOLFSSL_MSG("No file system and USE_CERT_BUFFERS_256 not defined.(1)");
+        ERROR_OUT(ASN_PARSE_E, exit_rsa);
+    }
+    #endif
 
     ret = wc_ecc_init_ex(caEccKeyPub, HEAP_HINT, devId);
     if (ret != 0)
@@ -18911,7 +19010,11 @@ static wc_test_ret_t rsa_keygen_test(WC_RNG* rng)
     RsaKey genKey[1];
 #endif
     wc_test_ret_t ret;
+#ifndef WOLFSSL_NO_MALLOC
     byte*  der = NULL;
+#else
+    byte der[1024];
+#endif
 #ifndef WOLFSSL_CRYPTOCELL
     word32 idx = 0;
 #endif
@@ -18956,11 +19059,12 @@ static wc_test_ret_t rsa_keygen_test(WC_RNG* rng)
     if (ret != 0)
         ERROR_OUT(WC_TEST_RET_ENC_EC(ret), exit_rsa);
 #endif
+#ifndef WOLFSSL_NO_MALLOC
     der = (byte*)XMALLOC(FOURK_BUF, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
     if (der == NULL) {
         ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit_rsa);
     }
-
+#endif
     derSz = wc_RsaKeyToDer(genKey, der, FOURK_BUF);
     if (derSz < 0) {
         ERROR_OUT(WC_TEST_RET_ENC_EC(derSz), exit_rsa);
@@ -18996,10 +19100,12 @@ exit_rsa:
     wc_FreeRsaKey(genKey);
 #endif
 
+#ifndef WOLFSSL_NO_MALLOC
     if (der != NULL) {
         XFREE(der, HEAP_HINT, DYNAMIC_TYPE_TMP_BUFFER);
         der = NULL;
     }
+#endif
 
     return ret;
 }
@@ -27343,10 +27449,12 @@ static wc_test_ret_t ecc_test_make_pub(WC_RNG* rng)
     wc_ecc_init_ex(key, HEAP_HINT, devId);
 
 #ifndef NO_ECC256
-#ifdef USE_CERT_BUFFERS_256
-    XMEMCPY(tmp, ecc_key_der_256, (size_t)sizeof_ecc_key_der_256);
-    tmpSz = (size_t)sizeof_ecc_key_der_256;
-#else
+#if defined(USE_CERT_BUFFERS_256)
+    {
+        XMEMCPY(tmp, ecc_key_der_256, (size_t)sizeof_ecc_key_der_256);
+        tmpSz = (size_t)sizeof_ecc_key_der_256;
+    }
+#elif !defined(NO_FILESYSTEM)
     {
         XFILE file = XFOPEN(eccKeyDerFile, "rb");
         if (!file) {
@@ -27357,6 +27465,11 @@ static wc_test_ret_t ecc_test_make_pub(WC_RNG* rng)
         XFCLOSE(file);
         if (tmpSz == 0)
             ERROR_OUT(WC_TEST_RET_ENC_ERRNO, done);
+    }
+#else
+    {
+        WOLFSSL_MSG("No file system and USE_CERT_BUFFERS_256 not defined.(2)");
+        ERROR_OUT(ASN_PARSE_E, done);
     }
 #endif /* USE_CERT_BUFFERS_256 */
 
@@ -28889,10 +29002,12 @@ static wc_test_ret_t ecc_def_curve_test(WC_RNG *rng)
     ((defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT)) || \
      (defined(HAVE_ECC_KEY_IMPORT) && !defined(WOLFSSL_VALIDATE_ECC_IMPORT)))
     /* Use test ECC key - ensure real private "d" exists */
-    #ifdef USE_CERT_BUFFERS_256
-    ret = wc_EccPrivateKeyDecode(ecc_key_der_256, &idx, key,
-        sizeof_ecc_key_der_256);
-    #else
+    #if defined(USE_CERT_BUFFERS_256)
+    {
+        ret = wc_EccPrivateKeyDecode(ecc_key_der_256, &idx, key,
+                                     sizeof_ecc_key_der_256);
+    }
+    #elif !defined(NO_FILESYSTEM)
     {
         XFILE file = XFOPEN(eccKeyDerFile, "rb");
         byte der[128];
@@ -28905,6 +29020,12 @@ static wc_test_ret_t ecc_def_curve_test(WC_RNG *rng)
         if (derSz == 0)
             ERROR_OUT(WC_TEST_RET_ENC_ERRNO, done);
         ret = wc_EccPrivateKeyDecode(der, &idx, key, derSz);
+    }
+    #else
+    {
+        (void)idx;
+        WOLFSSL_MSG("No file system and USE_CERT_BUFFERS_256 not defined.(3)");
+        ERROR_OUT(ASN_PARSE_E, done);
     }
     #endif
     if (ret != 0) {
@@ -29834,9 +29955,9 @@ static wc_test_ret_t ecc_test_cert_gen(WC_RNG* rng)
     ecc_key certPubKey[1];
 #endif
     int         certSz;
-    size_t      bytes;
+    size_t      bytes = 0;
     word32      idx = 0;
-#ifndef USE_CERT_BUFFERS_256
+#if !defined(USE_CERT_BUFFERS_256) && !defined(NO_FILESYSTEM)
     XFILE       file;
 #endif
 #if defined(WOLFSSL_SMALL_STACK) && !defined(WOLFSSL_NO_MALLOC)
@@ -29867,38 +29988,46 @@ static wc_test_ret_t ecc_test_cert_gen(WC_RNG* rng)
     /* Get cert private key */
 #ifdef ENABLE_ECC384_CERT_GEN_TEST
     /* Get Cert Key 384 */
-#ifdef USE_CERT_BUFFERS_256
-    XMEMCPY(der, ca_ecc_key_der_384, sizeof_ca_ecc_key_der_384);
-    bytes = sizeof_ca_ecc_key_der_384;
-#else
-    file = XFOPEN(eccCaKey384File, "rb");
-    if (!file) {
-        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
-    }
+    #ifdef USE_CERT_BUFFERS_256
+        XMEMCPY(der, ca_ecc_key_der_384, sizeof_ca_ecc_key_der_384);
+        bytes = sizeof_ca_ecc_key_der_384;
+    #elif !defined(NO_FILESYSTEM)
+        file = XFOPEN(eccCaKey384File, "rb");
+        if (!file) {
+            ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
+        }
 
-    bytes = XFREAD(der, 1, FOURK_BUF, file);
-    XFCLOSE(file);
-    if (bytes == 0)
-        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
-    (void)eccCaKeyFile;
-#endif /* USE_CERT_BUFFERS_256 */
+        bytes = XFREAD(der, 1, FOURK_BUF, file);
+        XFCLOSE(file);
+        if (bytes == 0)
+            ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
+        (void)eccCaKeyFile;
+    #else
+        WOLFSSL_MSG("No file system and USE_CERT_BUFFERS_256 not defined.(4)");
+        ERROR_OUT(ASN_PARSE_E, exit);
+    #endif /* USE_CERT_BUFFERS_256 */
+
+    /* end if ENABLE_ECC384_CERT_GEN_TEST */
 #else
-#ifdef USE_CERT_BUFFERS_256
-    XMEMCPY(der, ca_ecc_key_der_256, sizeof_ca_ecc_key_der_256);
-    bytes = sizeof_ca_ecc_key_der_256;
-#else
-    file = XFOPEN(eccCaKeyFile, "rb");
-    if (!file) {
-        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
-    }
-    bytes = XFREAD(der, 1, FOURK_BUF, file);
-    XFCLOSE(file);
-    if (bytes == 0)
-        ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
-#ifdef ENABLE_ECC384_CERT_GEN_TEST
-    (void)eccCaKey384File;
-#endif
-#endif /* USE_CERT_BUFFERS_256 */
+    /* !ENABLE_ECC384_CERT_GEN_TEST */
+
+    #ifdef USE_CERT_BUFFERS_256
+        XMEMCPY(der, ca_ecc_key_der_256, sizeof_ca_ecc_key_der_256);
+        bytes = sizeof_ca_ecc_key_der_256;
+    #else
+        file = XFOPEN(eccCaKeyFile, "rb");
+        if (!file) {
+            ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
+        }
+        bytes = XFREAD(der, 1, FOURK_BUF, file);
+        XFCLOSE(file);
+        if (bytes == 0)
+            ERROR_OUT(WC_TEST_RET_ENC_ERRNO, exit);
+
+        #ifdef ENABLE_ECC384_CERT_GEN_TEST
+            (void)eccCaKey384File;
+        #endif
+    #endif /* USE_CERT_BUFFERS_256 */
 #endif /* ENABLE_ECC384_CERT_GEN_TEST */
 
     /* Get CA Key */
@@ -29959,23 +30088,28 @@ static wc_test_ret_t ecc_test_cert_gen(WC_RNG* rng)
 #endif /* WOLFSSL_CERT_EXT */
 
 #ifdef ENABLE_ECC384_CERT_GEN_TEST
-#if defined(USE_CERT_BUFFERS_256)
-    ret = wc_SetIssuerBuffer(myCert, ca_ecc_cert_der_384,
-                                      sizeof_ca_ecc_cert_der_384);
+    #if defined(USE_CERT_BUFFERS_256)
+        ret = wc_SetIssuerBuffer(myCert, ca_ecc_cert_der_384,
+                                         sizeof_ca_ecc_cert_der_384);
+    #elif !defined(NO_FILESYSTEM)
+        ret = wc_SetIssuer(myCert, eccCaCert384File);
+        (void)eccCaCertFile;
+    #else
+        /* not testing with embedded, no file system target */
+        ERROR_OUT(ASN_PARSE_E, exit);
+    #endif /* USE_CERT_BUFFERS_256 */
+
 #else
-    ret = wc_SetIssuer(myCert, eccCaCert384File);
-    (void)eccCaCertFile;
-#endif
-#else
-#if defined(USE_CERT_BUFFERS_256)
-    ret = wc_SetIssuerBuffer(myCert, ca_ecc_cert_der_256,
-                                      sizeof_ca_ecc_cert_der_256);
-#else
-    ret = wc_SetIssuer(myCert, eccCaCertFile);
-    #ifdef ENABLE_ECC384_CERT_GEN_TEST
-    (void)eccCaCert384File;
+    /* not ENABLE_ECC384_CERT_GEN_TEST */
+    #if defined(USE_CERT_BUFFERS_256)
+        ret = wc_SetIssuerBuffer(myCert, ca_ecc_cert_der_256,
+                                          sizeof_ca_ecc_cert_der_256);
+    #else
+        ret = wc_SetIssuer(myCert, eccCaCertFile);
+        #ifdef ENABLE_ECC384_CERT_GEN_TEST
+        (void)eccCaCert384File;
+        #endif
     #endif
-#endif
 #endif /* ENABLE_ECC384_CERT_GEN_TEST */
     if (ret < 0)
         ERROR_OUT(WC_TEST_RET_ENC_EC(ret), exit);
@@ -41672,7 +41806,9 @@ static int myOriEncryptCb(PKCS7* pkcs7, byte* cek, word32 cekSz, byte* oriType,
     int i;
 
     /* make sure buffers are large enough */
-    if ((*oriValueSz < (2 + cekSz)) || (*oriTypeSz < sizeof(oriType)))
+    if (*oriValueSz < (2 + cekSz))
+        return WC_TEST_RET_ENC_NC;
+    if (*oriTypeSz < sizeof(asnDataOid))
         return WC_TEST_RET_ENC_NC;
 
     /* our simple encryption algorithm will be take the bitwise complement */

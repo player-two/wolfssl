@@ -4805,6 +4805,13 @@ then
     ENABLED_DES3="yes"
 fi
 
+# DES3 TLS suites
+AC_ARG_ENABLE([des3-tls-suites],
+    [AS_HELP_STRING([--enable-des3-tls-suites],[Enable DES3 TLS cipher suites (default: disabled)])],
+    [ ENABLED_DES3_TLS_SUITES=$enableval ],
+    [ ENABLED_DES3_TLS_SUITES=no ]
+    )
+
 # ARC4
 if (test "$ENABLED_OPENSSH" = "yes" && test "x$ENABLED_FIPS" = "xno") || \
    test "$ENABLED_WPAS" = "yes" || test "$ENABLED_KRB" = "yes"
@@ -5749,7 +5756,7 @@ fi
 AC_ARG_ENABLE([ticket-nonce-malloc],
     [AS_HELP_STRING([--enable-ticket-nonce-malloc], [Enable dynamic allocation of ticket nonces (default: disabled)])],
     [ ENABLED_TICKET_NONCE_MALLOC=$enableval ],
-    [ ENABLED_TICKET_NONCE_MALLOC=no ]
+    [ ENABLED_TICKET_NONCE_MALLOC=no_implicit ]
     )
 
 if test "$ENABLED_TICKET_NONCE_MALLOC" = "yes"
@@ -6760,6 +6767,13 @@ then
     AM_CFLAGS="$AM_CFLAGS -DNO_SESSION_CACHE_REF"
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_DES_ECB"
+
+    # support longer session ticket nonce
+    if test "$ENABLED_TICKET_NONCE_MALLOC" = "no_implicit"
+    then
+        ENABLED_TICKET_NONCE_MALLOC="yes"
+        AM_CFLAGS="$AM_CFLAGS -DWOLFSSL_TICKET_NONCE_MALLOC"
+    fi
 fi
 
 if test "$ENABLED_PSK" = "no" && test "$ENABLED_LEANPSK" = "no" \
@@ -8711,6 +8725,14 @@ else
     fi
 fi
 
+if test "x$ENABLED_DES3_TLS_SUITES" = "xno"
+then
+    AM_CFLAGS="$AM_CFLAGS -DNO_DES3_TLS_SUITES"
+else
+    AS_IF([test "x$ENABLED_DES3" = "xno"],
+        [AC_MSG_ERROR([DES3 TLS suites require DES3])])
+fi
+
 if test "$ENABLED_AESGCM" != "no"
 then
     if test "$ENABLED_AESGCM" = "word"
@@ -9514,6 +9536,7 @@ echo "   * AES-EAX:                    $ENABLED_AESEAX"
 echo "   * AES Bitspliced:             $ENABLED_AESBS"
 echo "   * ARIA:                       $ENABLED_ARIA"
 echo "   * DES3:                       $ENABLED_DES3"
+echo "   * DES3 TLS Suites:            $ENABLED_DES3_TLS_SUITES"
 echo "   * Camellia:                   $ENABLED_CAMELLIA"
 echo "   * SM4-ECB:                    $ENABLED_SM4_ECB"
 echo "   * SM4-CBC:                    $ENABLED_SM4_CBC"

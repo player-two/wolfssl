@@ -8437,7 +8437,7 @@ static int TLSX_KeyShare_ProcessPqc(WOLFSSL* ssl, KeyShareEntry* keyShareEntry)
         XMEMCPY(ssl->arrays->preMasterSecret, keyShareEntry->ke,
                 keyShareEntry->keLen);
         ssl->arrays->preMasterSz = keyShareEntry->keLen;
-        XFREE(keyShareEntry->ke, ssl->heap, DYNAMIC_TYPE_SECRET)
+        XFREE(keyShareEntry->ke, ssl->heap, DYNAMIC_TYPE_SECRET);
         keyShareEntry->ke = NULL;
         keyShareEntry->keLen = 0;
         return 0;
@@ -9583,7 +9583,7 @@ int TLSX_CKS_Parse(WOLFSSL* ssl, byte* input, word16 length,
             case WOLFSSL_CKS_SIGSPEC_EXTERNAL:
             default:
                 /* All other values (including external) are not. */
-                return WOLFSSL_NOT_IMPLEMENTED;
+                return BAD_FUNC_ARG;
         }
     }
 
@@ -9618,7 +9618,7 @@ int TLSX_CKS_Parse(WOLFSSL* ssl, byte* input, word16 length,
         for (j = 0; j < length; j++) {
             if (ssl->sigSpec[i] == input[j]) {
                 /* Got the match, set to this one. */
-                ret = wolfSSL_UseCKS(ssl, &ssl->peerSigSpec[i], 1);
+                ret = wolfSSL_UseCKS(ssl, &ssl->sigSpec[i], 1);
                 if (ret == WOLFSSL_SUCCESS) {
                     ret = TLSX_UseCKS(&ssl->extensions, ssl, ssl->heap);
                     TLSX_SetResponse(ssl, TLSX_CKS);
@@ -11212,8 +11212,10 @@ static int TLSX_ClientCertificateType_GetSize(WOLFSSL* ssl, byte msgType)
         ret = (int)(OPAQUE8_LEN + cnt * OPAQUE8_LEN);
     }
     else if (msgType == server_hello || msgType == encrypted_extensions) {
-        /* sever side */
+        /* server side */
         cnt = ssl->options.rpkState.sending_ClientCertTypeCnt;/* must be one */
+        if (cnt != 1)
+            return SANITY_MSG_E;
         ret = OPAQUE8_LEN;
     }
     else {
@@ -13570,7 +13572,7 @@ static int TLSX_GetSizeWithEch(WOLFSSL* ssl, byte* semaphore, byte msgType,
 #endif
 
 /** Tells the buffered size of extensions to be sent into the client hello. */
-int TLSX_GetRequestSize(WOLFSSL* ssl, byte msgType, word16* pLength)
+int TLSX_GetRequestSize(WOLFSSL* ssl, byte msgType, word32* pLength)
 {
     int ret = 0;
     word16 length = 0;
@@ -13800,7 +13802,7 @@ static int TLSX_WriteWithEch(WOLFSSL* ssl, byte* output, byte* semaphore,
 #endif
 
 /** Writes the extensions to be sent into the client hello. */
-int TLSX_WriteRequest(WOLFSSL* ssl, byte* output, byte msgType, word16* pOffset)
+int TLSX_WriteRequest(WOLFSSL* ssl, byte* output, byte msgType, word32* pOffset)
 {
     int ret = 0;
     word16 offset = 0;
