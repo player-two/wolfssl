@@ -5,11 +5,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("wolfssl", .{
-        .root_source_file = .{
-            .path = "wrapper/Zig/binding.zig",
-        },
-    });
+    _ = b.addModule("wolfssl", .{ .root_source_file = b.path("wrapper/Zig/binding.zig") });
 
     // Options
     const shared = b.option(bool, "Shared", "Build the Shared Library [default: false]") orelse false;
@@ -65,7 +61,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .version = .{
             .major = 5,
-            .minor = 7,
+            .minor = 8,
             .patch = 0,
         },
     }) else b.addStaticLibrary(.{
@@ -79,9 +75,9 @@ pub fn build(b: *std.Build) void {
         else => lib.root_module.strip = true,
     }
     lib.addConfigHeader(config);
-    lib.addIncludePath(Path.relative(config.include_path));
-    lib.addIncludePath(Path.relative("wolfssl"));
-    lib.addIncludePath(.{ .path = "." });
+    lib.addIncludePath(b.path(config.include_path));
+    lib.addIncludePath(b.path("wolfssl"));
+    lib.addIncludePath(b.path("."));
     lib.addCSourceFiles(.{ .files = wolfssl_sources, .flags = cflags });
     lib.addCSourceFiles(.{ .files = wolfcrypt_sources, .flags = cflags });
     lib.defineCMacro("TFM_TIMING_RESISTANT", null);
@@ -133,7 +129,7 @@ pub fn build(b: *std.Build) void {
     }
     lib.linkLibC();
 
-    lib.installHeadersDirectory("wolfssl", "");
+    lib.installHeadersDirectory(b.path("wolfssl"), "", .{});
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
@@ -205,7 +201,7 @@ fn buildExe(b: *std.Build, info: BuildInfo) void {
         .target = info.target,
         .optimize = info.optimize,
     });
-    exe.addCSourceFile(.{ .file = Path.relative(info.path), .flags = cflags });
+    exe.addCSourceFile(.{ .file = b.path(info.path), .flags = cflags });
     // get library include headers
     for (info.lib.root_module.include_dirs.items) |include| {
         exe.root_module.include_dirs.append(b.allocator, include) catch {};

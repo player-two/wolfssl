@@ -1,10 +1,10 @@
 .{
     .name = "wolfssl",
-    .version = "5.7.0",
+    .version = "5.8.0",
     .dependencies = .{
         .winpthreads = .{
-            .url = "git+https://github.com/kassane/winpthreads-zigbuild#5dcdfe3a6436f161606fc6303abd665264102bda",
-            .hash = "1220133de22be40905cfad0702419bfce3ecf55a3b5038ce5bedea2f78db2a9418db",
+            .url = "git+https://github.com/kassane/winpthreads-zigbuild#6cc2d18761206ad86aef250f34b71599748157bd",
+            .hash = "1220361551a5e3a3e398aeac4ec5999492111c9efb484b05b3cdf53f578482becce3",
         },
     },
     .license = "GPLv2",
